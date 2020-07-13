@@ -33,6 +33,7 @@ import org.apache.hadoop.hive.ql.QueryDisplay;
 import org.apache.hadoop.hive.ql.QueryInfo;
 import org.apache.hadoop.hive.ql.QueryPlan;
 import org.apache.hadoop.hive.ql.QueryState;
+import org.apache.hadoop.hive.ql.exec.ExplainTask;
 import org.apache.hadoop.hive.ql.exec.FetchTask;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.parse.ASTNode;
@@ -55,6 +56,10 @@ import com.google.common.annotations.VisibleForTesting;
  * Covers the IDriver interface, handles query re-execution; and asks clear questions from the underlying re-execution plugins.
  */
 public class ReExecDriver implements IDriver {
+
+  // Every plugin should check for execution limit in shouldReexecute
+  // But just in case, we don't want an infinite loop
+  private final static int MAX_EXECUTION = 10;
 
   private class HandleReOptimizationExplain implements HiveSemanticAnalyzerHook {
 
@@ -103,10 +108,9 @@ public class ReExecDriver implements IDriver {
     return executionIndex == 0;
   }
 
-  public ReExecDriver(QueryState queryState, String userName, QueryInfo queryInfo,
-      ArrayList<IReExecutionPlugin> plugins) {
+  public ReExecDriver(QueryState queryState, QueryInfo queryInfo, ArrayList<IReExecutionPlugin> plugins) {
     this.queryState = queryState;
-    coreDriver = new Driver(queryState, userName, queryInfo, null);
+    coreDriver = new Driver(queryState, queryInfo, null);
     coreDriver.getHookRunner().addSemanticAnalyzerHook(new HandleReOptimizationExplain());
     this.plugins = plugins;
 
@@ -141,15 +145,13 @@ public class ReExecDriver implements IDriver {
   }
 
   @Override
-  public void setOperationId(String guid64) {
-    coreDriver.setOperationId(guid64);
+  public void setOperationId(String operationId) {
+    coreDriver.setOperationId(operationId);
   }
 
   @Override
   public CommandProcessorResponse run() throws CommandProcessorException {
     executionIndex = 0;
-    int maxExecutuions = 1 + coreDriver.getConf().getIntVar(ConfVars.HIVE_QUERY_MAX_REEXECUTION_COUNT);
-
 
     while (true) {
       executionIndex++;
@@ -170,9 +172,9 @@ public class ReExecDriver implements IDriver {
       afterExecute(oldPlanMapper, cpr != null);
 
       boolean shouldReExecute = explainReOptimization && executionIndex==1;
-      shouldReExecute |= cpr == null && shouldReExecute();
+      shouldReExecute |= cpr == null && shouldReExecute(cpe);
 
-      if (executionIndex >= maxExecutuions || !shouldReExecute) {
+      if (executionIndex >= MAX_EXECUTION || !shouldReExecute) {
         if (cpr != null) {
           return cpr;
         } else {
@@ -214,10 +216,10 @@ public class ReExecDriver implements IDriver {
     return ret;
   }
 
-  private boolean shouldReExecute() {
+  private boolean shouldReExecute(CommandProcessorException ex) {
     boolean ret = false;
     for (IReExecutionPlugin p : plugins) {
-      boolean shouldReExecute = p.shouldReExecute(executionIndex);
+      boolean shouldReExecute = p.shouldReExecute(executionIndex, ex);
       LOG.debug("{}.shouldReExecute = {}", p, shouldReExecute);
       ret |= shouldReExecute;
     }
@@ -253,8 +255,8 @@ public class ReExecDriver implements IDriver {
 
   @Override
   public Schema getSchema() {
-    if(explainReOptimization) {
-      return coreDriver.getExplainSchema();
+    if (explainReOptimization) {
+      return new Schema(ExplainTask.getResultSchema(), null);
     }
     return coreDriver.getSchema();
   }

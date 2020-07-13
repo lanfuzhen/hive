@@ -24,6 +24,8 @@ import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.ql.reexec.IReExecutionPlugin;
 import org.apache.hadoop.hive.ql.reexec.ReExecDriver;
+import org.apache.hadoop.hive.ql.reexec.ReExecutionRetryLockPlugin;
+import org.apache.hadoop.hive.ql.reexec.ReExecuteLostAMQueryPlugin;
 import org.apache.hadoop.hive.ql.reexec.ReExecutionOverlayPlugin;
 import org.apache.hadoop.hive.ql.reexec.ReOptimizePlugin;
 
@@ -35,13 +37,13 @@ import com.google.common.base.Strings;
 public class DriverFactory {
 
   public static IDriver newDriver(HiveConf conf) {
-    return newDriver(getNewQueryState(conf), null, null);
+    return newDriver(getNewQueryState(conf), null);
   }
 
-  public static IDriver newDriver(QueryState queryState, String userName, QueryInfo queryInfo) {
+  public static IDriver newDriver(QueryState queryState, QueryInfo queryInfo) {
     boolean enabled = queryState.getConf().getBoolVar(ConfVars.HIVE_QUERY_REEXECUTION_ENABLED);
     if (!enabled) {
-      return new Driver(queryState, userName, queryInfo);
+      return new Driver(queryState, queryInfo);
     }
 
     String strategies = queryState.getConf().getVar(ConfVars.HIVE_QUERY_REEXECUTION_STRATEGIES);
@@ -53,8 +55,10 @@ public class DriverFactory {
       }
       plugins.add(buildReExecPlugin(string));
     }
+    // The retrylock plugin is always enabled
+    plugins.add(new ReExecutionRetryLockPlugin());
 
-    return new ReExecDriver(queryState, userName, queryInfo, plugins);
+    return new ReExecDriver(queryState, queryInfo, plugins);
   }
 
   private static IReExecutionPlugin buildReExecPlugin(String name) throws RuntimeException {
@@ -63,6 +67,9 @@ public class DriverFactory {
     }
     if (name.equals("reoptimize")) {
       return new ReOptimizePlugin();
+    }
+    if(name.equals("reexecute_lost_am")) {
+      return new ReExecuteLostAMQueryPlugin();
     }
     throw new RuntimeException(
         "Unknown re-execution plugin: " + name + " (" + ConfVars.HIVE_QUERY_REEXECUTION_STRATEGIES.varname + ")");

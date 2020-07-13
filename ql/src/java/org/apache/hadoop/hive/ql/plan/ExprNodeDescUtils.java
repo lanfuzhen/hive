@@ -20,6 +20,7 @@ package org.apache.hadoop.hive.ql.plan;
 
 import com.google.common.collect.Multimap;
 import java.util.Collection;
+import org.apache.hadoop.hive.ql.parse.type.TypeCheckProcFactory;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.apache.hadoop.hive.ql.exec.ColumnInfo;
@@ -663,17 +664,21 @@ public class ExprNodeDescUtils {
 
   public static PrimitiveTypeInfo deriveMinArgumentCast(
       ExprNodeDesc childExpr, TypeInfo targetType) {
+    return deriveMinArgumentCast(childExpr.getTypeInfo(), targetType);
+  }
+
+  public static PrimitiveTypeInfo deriveMinArgumentCast(
+      TypeInfo childTi, TypeInfo targetType) {
     assert targetType instanceof PrimitiveTypeInfo : "Not a primitive type" + targetType;
     PrimitiveTypeInfo pti = (PrimitiveTypeInfo)targetType;
     // We only do the minimum cast for decimals. Other types are assumed safe; fix if needed.
     // We also don't do anything for non-primitive children (maybe we should assert).
     if ((pti.getPrimitiveCategory() != PrimitiveCategory.DECIMAL)
-        || (!(childExpr.getTypeInfo() instanceof PrimitiveTypeInfo))) {
+        || (!(childTi instanceof PrimitiveTypeInfo))) {
       return pti;
     }
-    PrimitiveTypeInfo childTi = (PrimitiveTypeInfo)childExpr.getTypeInfo();
     // If the child is also decimal, no cast is needed (we hope - can target type be narrower?).
-    return HiveDecimalUtils.getDecimalTypeForPrimitiveCategory(childTi);
+    return HiveDecimalUtils.getDecimalTypeForPrimitiveCategory((PrimitiveTypeInfo) childTi);
   }
 
   /**
@@ -998,20 +1003,7 @@ public class ExprNodeDescUtils {
     return true;
   }
 
-  // Given an expression this method figures out if the type for the expression belongs to string group
-  // e.g. (String, Char, Varchar etc)
-  public static boolean isStringType(ExprNodeDesc expr) {
-    TypeInfo typeInfo = expr.getTypeInfo();
-    if (typeInfo.getCategory() == ObjectInspector.Category.PRIMITIVE) {
-      PrimitiveObjectInspector.PrimitiveCategory primitiveCategory = ((PrimitiveTypeInfo) typeInfo).getPrimitiveCategory();
-      if (PrimitiveObjectInspectorUtils.getPrimitiveGrouping(primitiveCategory) ==
-          PrimitiveObjectInspectorUtils.PrimitiveGrouping.STRING_GROUP) {
-        return true;
-      }
-    }
-    return false;
-  }
-    // Given an expression this method figures out if the type for the expression is integer
+  // Given an expression this method figures out if the type for the expression is integer
   // i.e. INT, SHORT, TINYINT (BYTE) or LONG
   public static boolean isIntegerType(ExprNodeDesc expr) {
     TypeInfo typeInfo = expr.getTypeInfo();

@@ -33,13 +33,14 @@ import org.apache.hadoop.hive.ql.parse.CalcitePlanner;
 import org.apache.hadoop.hive.ql.parse.HiveParser;
 import org.apache.hadoop.hive.ql.parse.ParseUtils;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
+import org.apache.hadoop.hive.ql.session.SessionState;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
  * Analyzer for alter materialized view rebuild commands.
  */
-@DDLType(type=HiveParser.TOK_ALTER_MATERIALIZED_VIEW_REBUILD)
+@DDLType(types = HiveParser.TOK_ALTER_MATERIALIZED_VIEW_REBUILD)
 public class AlterMaterializedViewRebuildAnalyzer extends CalcitePlanner {
   private static final Logger LOG = LoggerFactory.getLogger(AlterMaterializedViewRebuildAnalyzer.class);
 
@@ -54,7 +55,12 @@ public class AlterMaterializedViewRebuildAnalyzer extends CalcitePlanner {
       return;
     }
 
-    TableName tableName = getQualifiedTableName((ASTNode) root.getChild(0));
+    ASTNode tableTree = (ASTNode) root.getChild(0);
+    TableName tableName = getQualifiedTableName(tableTree);
+    if (ctx.enableUnparse()) {
+      unparseTranslator.addTableNameTranslation(tableTree, SessionState.get().getCurrentDatabase());
+      return;
+    }
     ASTNode rewrittenAST = getRewrittenAST(tableName);
 
     mvRebuildMode = MaterializationRebuildMode.INSERT_OVERWRITE_REBUILD;
@@ -88,7 +94,7 @@ public class AlterMaterializedViewRebuildAnalyzer extends CalcitePlanner {
       String rewrittenInsertStatement = String.format(REWRITTEN_INSERT_STATEMENT,
           tableName.getEscapedNotEmptyDbTable(), viewText);
       rewrittenAST = ParseUtils.parse(rewrittenInsertStatement, ctx);
-      this.ctx.addRewrittenStatementContext(ctx);
+      this.ctx.addSubContext(ctx);
 
       if (!this.ctx.isExplainPlan() && AcidUtils.isTransactionalTable(table)) {
         // Acquire lock for the given materialized view. Only one rebuild per materialized view can be triggered at a

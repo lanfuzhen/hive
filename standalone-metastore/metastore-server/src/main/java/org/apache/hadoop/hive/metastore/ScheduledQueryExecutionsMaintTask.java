@@ -22,6 +22,7 @@ import java.util.concurrent.TimeUnit;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
+import org.apache.hadoop.hive.metastore.conf.MetastoreConf.ConfVars;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -32,6 +33,13 @@ public class ScheduledQueryExecutionsMaintTask implements MetastoreTaskThread {
   private static final Logger LOG = LoggerFactory.getLogger(ScheduledQueryExecutionsMaintTask.class);
 
   private Configuration conf;
+
+  @Override
+  public long initialDelay(TimeUnit unit) {
+    // no delay before the first execution;
+    // after an ungracefull shutdown it might take time to notice that in-flight scheduled queries are not running anymore
+    return 0;
+  }
 
   @Override
   public long runFrequency(TimeUnit unit) {
@@ -52,6 +60,9 @@ public class ScheduledQueryExecutionsMaintTask implements MetastoreTaskThread {
   @Override
   public void run() {
     try {
+      if (!MetastoreConf.getBoolVar(conf, ConfVars.SCHEDULED_QUERIES_ENABLED)) {
+        return;
+      }
       RawStore ms = HiveMetaStore.HMSHandler.getMSForConf(conf);
 
       int timeoutSecs = (int) MetastoreConf.getTimeVar(conf,

@@ -195,7 +195,7 @@ STAGE PLANS:
                       Statistics: Num rows: 1049 Data size: 117488 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: decimal(6,2))
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: decimal(6,2))
                         Reduce Sink Vectorization:
@@ -233,7 +233,7 @@ STAGE PLANS:
                 vectorized: true
                 rowBatchContext:
                     dataColumnCount: 2
-                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)
+                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)/DECIMAL_64
                     partitionColumnCount: 0
                     scratchColumnTypeNames: []
             Reduce Operator Tree:
@@ -621,7 +621,7 @@ STAGE PLANS:
                       Statistics: Num rows: 1049 Data size: 117488 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: decimal(6,2))
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: decimal(6,2))
                         Reduce Sink Vectorization:
@@ -659,7 +659,7 @@ STAGE PLANS:
                 vectorized: true
                 rowBatchContext:
                     dataColumnCount: 2
-                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)
+                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)/DECIMAL_64
                     partitionColumnCount: 0
                     scratchColumnTypeNames: []
             Reduce Operator Tree:
@@ -803,7 +803,7 @@ STAGE PLANS:
                     Statistics: Num rows: 1049 Data size: 117488 Basic stats: COMPLETE Column stats: COMPLETE
                     Reduce Output Operator
                       key expressions: dec (type: decimal(6,2))
-                      null sort order: a
+                      null sort order: z
                       sort order: +
                       Map-reduce partition columns: dec (type: decimal(6,2))
                       Reduce Sink Vectorization:
@@ -843,7 +843,7 @@ STAGE PLANS:
                 vectorized: true
                 rowBatchContext:
                     dataColumnCount: 2
-                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)
+                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)/DECIMAL_64
                     partitionColumnCount: 0
                     scratchColumnTypeNames: []
             Reduce Operator Tree:
@@ -1224,7 +1224,7 @@ STAGE PLANS:
                     Statistics: Num rows: 1049 Data size: 117488 Basic stats: COMPLETE Column stats: COMPLETE
                     Reduce Output Operator
                       key expressions: dec (type: decimal(6,2))
-                      null sort order: a
+                      null sort order: z
                       sort order: +
                       Map-reduce partition columns: dec (type: decimal(6,2))
                       Reduce Sink Vectorization:
@@ -1264,7 +1264,7 @@ STAGE PLANS:
                 vectorized: true
                 rowBatchContext:
                     dataColumnCount: 2
-                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)
+                    dataColumns: KEY.reducesinkkey0:decimal(4,2), VALUE._col0:decimal(4,0)/DECIMAL_64
                     partitionColumnCount: 0
                     scratchColumnTypeNames: []
             Reduce Operator Tree:

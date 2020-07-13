@@ -22,7 +22,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.StatsSetupConst;
 import org.apache.hadoop.hive.common.TableName;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -34,14 +34,13 @@ import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.ddl.DDLOperation;
 import org.apache.hadoop.hive.ql.ddl.DDLOperationContext;
 import org.apache.hadoop.hive.ql.ddl.DDLUtils;
-import org.apache.hadoop.hive.ql.ddl.table.constaint.AlterTableAddConstraintOperation;
+import org.apache.hadoop.hive.ql.ddl.table.constraint.add.AlterTableAddConstraintOperation;
 import org.apache.hadoop.hive.ql.exec.repl.util.ReplUtils;
 import org.apache.hadoop.hive.ql.hooks.ReadEntity;
 import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
-import org.apache.hadoop.hive.ql.parse.DDLSemanticAnalyzer;
 import org.apache.hadoop.hive.ql.session.SessionState;
 
 /**
@@ -88,7 +87,7 @@ public abstract class AbstractAlterTableOperation<T extends AbstractAlterTableDe
       throws HiveException {
     List<Partition> partitions = null;
     if (partSpec != null) {
-      if (DDLSemanticAnalyzer.isFullSpec(tbl, partSpec)) {
+      if (AlterTableUtils.isFullPartitionSpec(tbl, partSpec)) {
         partitions = new ArrayList<Partition>();
         Partition part = context.getDb().getPartition(tbl, partSpec, false);
         if (part == null) {
@@ -99,7 +98,7 @@ public abstract class AbstractAlterTableOperation<T extends AbstractAlterTableDe
         }
         partitions.add(part);
       } else {
-        // DDLSemanticAnalyzer has already checked if partial partition specs are allowed,
+        // AbstractBaseAlterTableAnalyzer has already checked if partial partition specs are allowed,
         // thus we should not need to check it here.
         partitions = context.getDb().getPartitions(tbl, partSpec);
       }
@@ -179,7 +178,7 @@ public abstract class AbstractAlterTableOperation<T extends AbstractAlterTableDe
 
     // This is kind of hacky - the read entity contains the old table, whereas the write entity contains the new
     // table. This is needed for rename - both the old and the new table names are passed
-    // Don't acquire locks for any of these, we have already asked for them in DDLSemanticAnalyzer.
+    // Don't acquire locks for any of these, we have already asked for them in AbstractBaseAlterTableAnalyzer.
     if (partitions != null) {
       for (Partition partition : partitions) {
         context.getWork().getInputs().add(new ReadEntity(partition));

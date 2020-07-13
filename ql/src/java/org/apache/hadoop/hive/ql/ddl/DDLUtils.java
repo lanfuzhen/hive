@@ -28,7 +28,7 @@ import java.util.Set;
 import java.util.SortedMap;
 import java.util.TreeMap;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -41,6 +41,7 @@ import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.metadata.Partition;
 import org.apache.hadoop.hive.ql.metadata.Table;
+import org.apache.hadoop.hive.ql.parse.ASTNode;
 import org.apache.hadoop.hive.ql.parse.ReplicationSpec;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.session.SessionState;
@@ -218,5 +219,22 @@ public final class DDLUtils {
     }
 
     throw new SemanticException("Kill query is only supported in HiveServer2 (not hive cli)");
+  }
+
+  /**
+   * Get the fully qualified name in the node.
+   * E.g. the node of the form ^(DOT ^(DOT a b) c) will generate a name of the form "a.b.c".
+   */
+  public static String getFQName(ASTNode node) {
+    if (node.getChildCount() == 0) {
+      return node.getText();
+    } else if (node.getChildCount() == 2) {
+      return getFQName((ASTNode) node.getChild(0)) + "." + getFQName((ASTNode) node.getChild(1));
+    } else if (node.getChildCount() == 3) {
+      return getFQName((ASTNode) node.getChild(0)) + "." + getFQName((ASTNode) node.getChild(1)) + "." +
+          getFQName((ASTNode) node.getChild(2));
+    } else {
+      return null;
+    }
   }
 }

@@ -18,6 +18,9 @@
 
 package org.apache.hadoop.hive.ql.exec.vector;
 
+import org.apache.hive.common.util.SuppressFBWarnings;
+
+import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 
 
@@ -130,6 +133,7 @@ public class BytesColumnVector extends ColumnVector {
       if (bufferAllocationCount > 0) {
         for (int idx = 0; idx < vector.length; ++idx) {
           vector[idx] = null;
+          length[idx] = 0;
         }
         buffer = smallBuffer; // In case last row was a large bytes value
       }
@@ -218,6 +222,7 @@ public class BytesColumnVector extends ColumnVector {
     }
   }
 
+  @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Expose internal rep for efficiency")
   public byte[] getValPreallocatedBytes() {
     return buffer;
   }
@@ -522,7 +527,7 @@ public class BytesColumnVector extends ColumnVector {
       row = 0;
     }
     if (noNulls || !isNull[row]) {
-      return new String(vector[row], start[row], length[row]);
+      return new String(vector[row], start[row], length[row], StandardCharsets.UTF_8);
     } else {
       return null;
     }
@@ -535,7 +540,7 @@ public class BytesColumnVector extends ColumnVector {
     }
     if (noNulls || !isNull[row]) {
       buffer.append('"');
-      buffer.append(new String(vector[row], start[row], length[row]));
+      buffer.append(new String(vector[row], start[row], length[row], StandardCharsets.UTF_8));
       buffer.append('"');
     } else {
       buffer.append("null");

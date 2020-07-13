@@ -1084,7 +1084,9 @@ public class VectorHashKeyWrapperBatch extends VectorColumnSetInfo {
       comparator.addColumnComparator(
               i, columnTypeSpecificIndex, columnVectorType, columnSortOrder.charAt(i), nullOrder.charAt(i));
     }
-
+    if (comparator.getComparators().length == 1) { // don't use the composite comparator for n=1
+      return comparator.getComparators()[0];
+    }
     return comparator;
   }
 }

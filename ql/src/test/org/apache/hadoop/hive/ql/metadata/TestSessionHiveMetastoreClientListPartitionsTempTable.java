@@ -25,6 +25,7 @@ import org.apache.hadoop.hive.metastore.annotation.MetastoreCheckinTest;
 import org.apache.hadoop.hive.metastore.api.MetaException;
 import org.apache.hadoop.hive.metastore.api.NoSuchObjectException;
 import org.apache.hadoop.hive.metastore.api.Partition;
+import org.apache.hadoop.hive.metastore.api.PartitionSpec;
 import org.apache.hadoop.hive.metastore.api.PrincipalPrivilegeSet;
 import org.apache.hadoop.hive.metastore.api.PrivilegeGrantInfo;
 import org.apache.hadoop.hive.metastore.api.Table;
@@ -212,6 +213,18 @@ public class TestSessionHiveMetastoreClientListPartitionsTempTable
     super.testListPartitionValuesNullTblName();
   }
 
+  @Test(expected = NoSuchObjectException.class)
+  @Override
+  public void testListPartitionNamesNoDb() throws Exception {
+    super.testListPartitionNamesNoDb();
+  }
+
+  @Test
+  @Override
+  public void testListPartitionsAllNoTable() throws Exception {
+    super.testListPartitionsAllNoTable();
+  }
+
   @Test
   public void testListPartitionsByExpr() throws Exception {
     createTable4PartColsParts(getClient());
@@ -262,19 +275,19 @@ public class TestSessionHiveMetastoreClientListPartitionsTempTable
         null, (short)-1, new ArrayList<>());
   }
 
-  @Test(expected = NoSuchObjectException.class)
+  @Test(expected = MetaException.class)
   public void testListPartitionsByExprNoTbl() throws Exception {
     getClient().listPartitionsByExpr(DB_NAME, TABLE_NAME, new byte[] {'f', 'o', 'o'},
         null, (short)-1, new ArrayList<>());
   }
 
-  @Test(expected = NoSuchObjectException.class)
+  @Test(expected = MetaException.class)
   public void testListPartitionsByExprEmptyDbName() throws Exception {
     getClient().listPartitionsByExpr("", TABLE_NAME, new byte[] {'f', 'o', 'o'},
         null, (short)-1, new ArrayList<>());
   }
 
-  @Test(expected = NoSuchObjectException.class)
+  @Test(expected = MetaException.class)
   public void testListPartitionsByExprEmptyTblName() throws Exception {
     createTable3PartCols1Part(getClient());
     getClient().listPartitionsByExpr(DB_NAME, "", new byte[] {'f', 'o', 'o'},
@@ -300,4 +313,102 @@ public class TestSessionHiveMetastoreClientListPartitionsTempTable
     assertEquals("Partition check failed: " + expr.getExprString(), numParts, parts.size());
   }
 
+  @Test
+  public void testListPartitionsSpecByExpr() throws Exception {
+    createTable4PartColsParts(getClient());
+    TestMetastoreExpr.ExprBuilder e = new TestMetastoreExpr.ExprBuilder(TABLE_NAME);
+    checkExprPartitionSpec(2, e.strCol("yyyy").val("2017").pred("=", 2).build());
+    checkExprPartitionSpec(3, e.strCol("mm").val("11").pred(">", 2).build());
+    checkExprPartitionSpec(4, e.strCol("dd").val("29").pred(">=", 2).build());
+    checkExprPartitionSpec(2, e.strCol("yyyy").val("2017").pred("!=", 2).build());
+    checkExprPartitionSpec(1, e.strCol("yyyy").val("2017").pred("=", 2)
+        .strCol("mm").val("10").pred(">=", 2).pred("and", 2).build());
+    checkExprPartitionSpec(3, e.strCol("dd").val("10").pred("<", 2).strCol("yyyy")
+        .val("2009").pred("!=", 2).pred("or", 2).build());
+    checkExprPartitionSpec(0, e.strCol("yyyy").val("2019").pred("=", 2).build());
+  }
+
+  @Test(expected = AssertionError.class)
+  public void testListPartitionsSpecByExprNullResult() throws Exception {
+    createTable4PartColsParts(getClient());
+    TestMetastoreExpr.ExprBuilder e = new TestMetastoreExpr.ExprBuilder(TABLE_NAME);
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME, SerializationUtilities.serializeExpressionToKryo(
+        e.strCol("yyyy").val("2017").pred("=", 2).build()), null, (short)-1, null);
+  }
+
+
+
+  @Test
+  public void testListPartitionsSpecByExprDefMaxParts() throws Exception {
+    createTable4PartColsParts(getClient());
+    TestMetastoreExpr.ExprBuilder e = new TestMetastoreExpr.ExprBuilder(TABLE_NAME);
+    List<PartitionSpec> result = new ArrayList<>();
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME, SerializationUtilities.serializeExpressionToKryo(
+        e.strCol("yyyy").val("2017").pred(">=", 2).build()), null, (short)3, result);
+    assertEquals(3, result.iterator().next().getSharedSDPartitionSpec().getPartitionsSize());
+  }
+
+  @Test
+  public void testListPartitionsSpecByExprHighMaxParts() throws Exception {
+    createTable4PartColsParts(getClient());
+    TestMetastoreExpr.ExprBuilder e = new TestMetastoreExpr.ExprBuilder(TABLE_NAME);
+    List<PartitionSpec> result = new ArrayList<>();
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME, SerializationUtilities.serializeExpressionToKryo(
+        e.strCol("yyyy").val("2017").pred(">=", 2).build()), null, (short)100, result);
+    assertEquals(4, result.iterator().next().getSharedSDPartitionSpec().getPartitionsSize());
+  }
+
+  @Test(expected = NoSuchObjectException.class)
+  public void testListPartitionsSpecByExprNoDb() throws Exception {
+    getClient().dropDatabase(DB_NAME);
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME, new byte[] {'f', 'o', 'o'},
+        null, (short)-1, new ArrayList<>());
+  }
+
+  @Test(expected = MetaException.class)
+  public void testListPartitionsSpecByExprNoTbl() throws Exception {
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME, new byte[] {'f', 'o', 'o'},
+        null, (short)-1, new ArrayList<>());
+  }
+
+  @Test(expected = MetaException.class)
+  public void testListPartitionsSpecByExprEmptyDbName() throws Exception {
+    getClient().listPartitionsSpecByExpr("", TABLE_NAME, new byte[] {'f', 'o', 'o'},
+        null, (short)-1, new ArrayList<>());
+  }
+
+  @Test(expected = MetaException.class)
+  public void testListPartitionsSpecByExprEmptyTblName() throws Exception {
+    createTable3PartCols1Part(getClient());
+    getClient().listPartitionsSpecByExpr(DB_NAME, "", new byte[] {'f', 'o', 'o'},
+        null, (short)-1, new ArrayList<>());
+  }
+
+  @Test(expected = MetaException.class)
+  public void testListPartitionsSpecByExprNullDbName() throws Exception {
+    getClient().listPartitionsSpecByExpr(null, TABLE_NAME, new byte[] {'f', 'o', 'o'},
+        null, (short)-1, new ArrayList<>());
+  }
+
+  @Test(expected = MetaException.class)
+  public void testListPartitionsSpecByExprNullTblName() throws Exception {
+    getClient().listPartitionsSpecByExpr(DB_NAME, null, new byte[] {'f', 'o', 'o' },
+        null, (short)-1, new ArrayList<>());
+  }
+
+  private void checkExprPartitionSpec(int numParts, ExprNodeGenericFuncDesc expr) throws Exception {
+    List<Partition> parts = new ArrayList<>();
+    getClient().listPartitionsByExpr(DB_NAME, TABLE_NAME, SerializationUtilities.serializeExpressionToKryo(expr),
+        null, (short) -1, parts);
+    assertEquals("Partition check failed: " + expr.getExprString(), numParts, parts.size());
+    // check with partition spec as well
+    List<PartitionSpec> partSpec = new ArrayList<>();
+    getClient().listPartitionsSpecByExpr(DB_NAME, TABLE_NAME,
+        SerializationUtilities.serializeExpressionToKryo(expr), null, (short)-1, partSpec);
+    int partSpecSize = 0;
+    if(!partSpec.isEmpty()) {
+      partSpecSize = partSpec.iterator().next().getSharedSDPartitionSpec().getPartitionsSize();
+    }
+    assertEquals("Partition Spec check failed: " + expr.getExprString(), numParts, partSpecSize);
+  }
 }

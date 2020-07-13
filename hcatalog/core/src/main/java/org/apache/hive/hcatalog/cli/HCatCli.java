@@ -36,7 +36,7 @@ import org.apache.commons.cli.OptionBuilder;
 import org.apache.commons.cli.Options;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.cli.Parser;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.io.SessionStream;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -177,8 +177,12 @@ public class HCatCli {
     // Now that the properties are in, we can instantiate SessionState.
     SessionState.start(ss);
 
-    // all done parsing, let's run stuff!
+    // remove the leading and trailing quotes. hcatalog can miss on some cases.
+    if (execString.length() > 1 && execString.startsWith("\"") && execString.endsWith("\"")) {
+      execString = execString.substring(1, execString.length() - 1);
+    }
 
+    // all done parsing, let's run stuff!
     if (execString != null) {
       sysExit(ss, processLine(execString));
     }

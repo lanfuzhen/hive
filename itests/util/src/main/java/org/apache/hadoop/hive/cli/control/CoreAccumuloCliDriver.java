@@ -32,6 +32,7 @@ import org.junit.After;
 import org.junit.AfterClass;
 import org.junit.Before;
 import org.junit.BeforeClass;
+import org.junit.internal.AssumptionViolatedException;
 
 public class CoreAccumuloCliDriver extends CliAdapter {
 
@@ -110,7 +111,7 @@ public class CoreAccumuloCliDriver extends CliAdapter {
       try {
         qt.executeClient(fname);
       } catch (CommandProcessorException e) {
-        qt.failedQuery(e.getException(), e.getResponseCode(), fname, null);
+        qt.failedQuery(e.getCause(), e.getResponseCode(), fname, null);
       }
 
       QTestProcessExecResult result = qt.checkCliDriverResults(fname);
@@ -119,6 +120,8 @@ public class CoreAccumuloCliDriver extends CliAdapter {
       }
       qt.clearPostTestEffects();
 
+    } catch (AssumptionViolatedException e) {
+      throw e;
     } catch (Exception e) {
       qt.failedWithException(e, fname, null);
     }

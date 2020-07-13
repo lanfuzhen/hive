@@ -33,7 +33,7 @@ import java.util.concurrent.Callable;
 import java.util.stream.Stream;
 
 import org.apache.commons.io.FileUtils;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConfUtil;
 import org.apache.hadoop.hive.ql.QTestProcessExecResult;
@@ -124,10 +124,15 @@ public class CoreBeeLineDriver extends CliAdapter {
     }
     return Boolean.parseBoolean(value);
   }
+  @Override
+  public void beforeClass() throws Exception {
+    // We use the beforeClassSpec, because we want to HMS to be ready before the miniHS2 start
+    // See CliAdapter.buildClassRule
+  }
 
   @Override
   @BeforeClass
-  public void beforeClass() throws Exception {
+  public void beforeClassSpec() throws Exception {
     overwrite = getBooleanPropertyValue("test.output.overwrite", Boolean.FALSE);
 
     useSharedDatabase = getBooleanPropertyValue("test.beeline.shared.database", Boolean.FALSE);

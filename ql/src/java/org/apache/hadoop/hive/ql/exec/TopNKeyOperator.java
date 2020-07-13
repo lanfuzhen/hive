@@ -18,22 +18,24 @@
 
 package org.apache.hadoop.hive.ql.exec;
 
+import static org.apache.hadoop.hive.ql.exec.vector.VectorTopNKeyOperator.checkTopNFilterEfficiency;
+import static org.apache.hadoop.hive.ql.plan.api.OperatorType.TOPNKEY;
+
+import java.io.Serializable;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.ql.CompilationOpContext;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.ql.plan.TopNKeyDesc;
 import org.apache.hadoop.hive.ql.plan.api.OperatorType;
-import org.apache.hadoop.hive.ql.util.NullOrdering;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspector;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils;
-
-import java.io.Serializable;
-import java.util.Comparator;
-import java.util.List;
-
-import static org.apache.hadoop.hive.ql.plan.api.OperatorType.TOPNKEY;
-import static org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.NullValueOption;
 
 /**
  * TopNKeyOperator passes rows that contains top N keys only.
@@ -42,9 +44,13 @@ public class TopNKeyOperator extends Operator<TopNKeyDesc> implements Serializab
 
   private static final long serialVersionUID = 1L;
 
-  private transient TopNKeyFilter<KeyWrapper> topNKeyFilter;
+  private transient Map<KeyWrapper, TopNKeyFilter> topNKeyFilters;
 
+  private transient KeyWrapper partitionKeyWrapper;
   private transient KeyWrapper keyWrapper;
+
+  private transient KeyWrapperComparator keyWrapperComparator;
+  private transient Set<KeyWrapper> disabledPartitions;
 
   /** Kryo ctor. */
   public TopNKeyOperator() {
@@ -55,73 +61,104 @@ public class TopNKeyOperator extends Operator<TopNKeyDesc> implements Serializab
     super(ctx);
   }
 
-  public static class KeyWrapperComparator implements Comparator<KeyWrapper> {
-
-    private final List<Comparator<Object>> comparatorList;
-
-    KeyWrapperComparator(ObjectInspector[] keyObjectInspectors, String columnSortOrder, String nullSortOrder) {
-      boolean[] columnSortOrderIsDesc = new boolean[columnSortOrder.length()];
-      NullValueOption[] nullSortOrderArray = new NullValueOption[nullSortOrder.length()];
-      for (int i = 0; i < columnSortOrder.length(); ++i) {
-        columnSortOrderIsDesc[i] = columnSortOrder.charAt(i) == '-';
-        nullSortOrderArray[i] = NullOrdering.fromSign(nullSortOrder.charAt(i)).getNullValueOption();
-      }
-      comparatorList = ObjectInspectorUtils.getComparator(
-              keyObjectInspectors, keyObjectInspectors, columnSortOrderIsDesc, nullSortOrderArray);
-    }
-
-    @Override
-    public int compare(KeyWrapper key1, KeyWrapper key2) {
-      return ObjectInspectorUtils.compare(comparatorList, key1.getKeyArray(), key2.getKeyArray());
-    }
-  }
-
   @Override
   protected void initializeOp(Configuration hconf) throws HiveException {
     super.initializeOp(hconf);
 
-    String columnSortOrder = conf.getColumnSortOrder();
-    String nullSortOrder = conf.getNullOrder();
-
     ObjectInspector rowInspector = inputObjInspectors[0];
-    ObjectInspector standardObjInspector = ObjectInspectorUtils.getStandardObjectInspector(rowInspector);
     outputObjInspector = rowInspector;
 
-    // init keyFields
-    int numKeys = conf.getKeyColumns().size();
-    ExprNodeEvaluator[] keyFields = new ExprNodeEvaluator[numKeys];
-    ObjectInspector[] keyObjectInspectors = new ObjectInspector[numKeys];
-    ExprNodeEvaluator[] standardKeyFields = new ExprNodeEvaluator[numKeys];
-    ObjectInspector[] standardKeyObjectInspectors = new ObjectInspector[numKeys];
+    int numPartitionKeys = conf.getPartitionKeyColumns().size();
+    List<ExprNodeDesc> keyColumns = conf.getKeyColumns().subList(numPartitionKeys, conf.getKeyColumns().size());
+    String columnSortOrder = conf.getColumnSortOrder().substring(numPartitionKeys);
+    String nullSortOrder = conf.getNullOrder().substring(numPartitionKeys);
 
-    for (int i = 0; i < numKeys; i++) {
-      ExprNodeDesc key = conf.getKeyColumns().get(i);
+    // init keyFields
+    ObjectInspector[] keyObjectInspectors = new ObjectInspector[keyColumns.size()];
+    ObjectInspector[] currentKeyObjectInspectors = new ObjectInspector[keyColumns.size()];
+    keyWrapper = initObjectInspectors(hconf, keyColumns, rowInspector, keyObjectInspectors, currentKeyObjectInspectors);
+    ObjectInspector[] partitionKeyObjectInspectors = new ObjectInspector[numPartitionKeys];
+    ObjectInspector[] partitionCurrentKeyObjectInspectors = new ObjectInspector[numPartitionKeys];
+    partitionKeyWrapper = initObjectInspectors(hconf, conf.getPartitionKeyColumns(), rowInspector,
+            partitionKeyObjectInspectors, partitionCurrentKeyObjectInspectors);
+
+    keyWrapperComparator = new KeyWrapperComparator(
+            keyObjectInspectors, currentKeyObjectInspectors, columnSortOrder, nullSortOrder);
+
+    this.topNKeyFilters = new HashMap<>();
+    this.disabledPartitions = new HashSet<>();
+  }
+
+  private KeyWrapper initObjectInspectors(Configuration hconf,
+                                    List<ExprNodeDesc> keyColumns,
+                                    ObjectInspector rowInspector,
+                                    ObjectInspector[] keyObjectInspectors,
+                                    ObjectInspector[] currentKeyObjectInspectors) throws HiveException {
+    ExprNodeEvaluator[] keyFields = new ExprNodeEvaluator[keyColumns.size()];
+    for (int i = 0; i < keyColumns.size(); i++) {
+      ExprNodeDesc key = keyColumns.get(i);
       keyFields[i] = ExprNodeEvaluatorFactory.get(key, hconf);
       keyObjectInspectors[i] = keyFields[i].initialize(rowInspector);
-      standardKeyFields[i] = ExprNodeEvaluatorFactory.get(key, hconf);
-      standardKeyObjectInspectors[i] = standardKeyFields[i].initialize(standardObjInspector);
+      currentKeyObjectInspectors[i] = ObjectInspectorUtils.getStandardObjectInspector(keyObjectInspectors[i],
+              ObjectInspectorUtils.ObjectInspectorCopyOption.WRITABLE);
     }
 
-    this.topNKeyFilter = new TopNKeyFilter<>(conf.getTopN(), new TopNKeyOperator.KeyWrapperComparator(
-        standardKeyObjectInspectors, columnSortOrder, nullSortOrder));
-
     KeyWrapperFactory keyWrapperFactory = new KeyWrapperFactory(keyFields, keyObjectInspectors,
-        standardKeyObjectInspectors);
-    keyWrapper = keyWrapperFactory.getKeyWrapper();
+            currentKeyObjectInspectors);
+    return keyWrapperFactory.getKeyWrapper();
   }
 
   @Override
   public void process(Object row, int tag) throws HiveException {
-    keyWrapper.getNewKey(row, inputObjInspectors[tag]);
-    keyWrapper.setHashKey();
-    if (topNKeyFilter.canForward(keyWrapper)) {
+    if (!disabledPartitions.isEmpty() && disabledPartitions.size() == topNKeyFilters.size()) { // all filters are disabled due to efficiency check
       forward(row, outputObjInspector);
+      return;
+    }
+
+    partitionKeyWrapper.getNewKey(row, inputObjInspectors[tag]);
+    partitionKeyWrapper.setHashKey();
+
+    if (disabledPartitions.contains(partitionKeyWrapper)) { // filter for this partition is disabled
+      forward(row, outputObjInspector);
+      return;
+    }
+
+    TopNKeyFilter topNKeyFilter = topNKeyFilters.get(partitionKeyWrapper);
+    if (topNKeyFilter == null && topNKeyFilters.size() < conf.getMaxNumberOfPartitions()) {
+      topNKeyFilter = new TopNKeyFilter(conf.getTopN(), keyWrapperComparator);
+      topNKeyFilters.put(partitionKeyWrapper.copyKey(), topNKeyFilter);
+    }
+    if (topNKeyFilter == null) {
+      forward(row, outputObjInspector);
+    } else {
+      keyWrapper.getNewKey(row, inputObjInspectors[tag]);
+      keyWrapper.setHashKey();
+      if (topNKeyFilter.canForward(keyWrapper)) {
+        forward(row, outputObjInspector);
+      }
+    }
+
+    if (runTimeNumRows % conf.getCheckEfficiencyNumRows() == 0) { // check the efficiency at every nth rows
+      checkTopNFilterEfficiency(
+        topNKeyFilters, disabledPartitions, conf.getEfficiencyThreshold(), LOG, conf.getCheckEfficiencyNumRows());
     }
   }
 
   @Override
   protected final void closeOp(boolean abort) throws HiveException {
-    topNKeyFilter.clear();
+    if (topNKeyFilters.size() == 1) {
+      TopNKeyFilter filter = topNKeyFilters.values().iterator().next();
+      LOG.info("Closing TopNKeyFilter: {}", filter);
+      filter.clear();
+    } else {
+      LOG.info("Closing {} TopNKeyFilters", topNKeyFilters.size());
+      for (TopNKeyFilter each : topNKeyFilters.values()) {
+        LOG.debug("Closing TopNKeyFilter: {}", each);
+        each.clear();
+      }
+    }
+    topNKeyFilters.clear();
+    disabledPartitions.clear();
     super.closeOp(abort);
   }
 

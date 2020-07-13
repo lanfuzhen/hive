@@ -56,6 +56,7 @@ import org.apache.orc.impl.OrcAcidUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -236,6 +237,7 @@ public class VectorizedOrcAcidRowBatchReader
     // Set the range on the deleteEventReaderOptions to 0 to INTEGER_MAX because
     // we always want to read all the delete delta files.
     deleteEventReaderOptions.range(0, Long.MAX_VALUE);
+    deleteEventReaderOptions.searchArgument(null, null);
     keyInterval = findMinMaxKeys(orcSplit, conf, deleteEventReaderOptions);
     DeleteEventRegistry der;
     try {
@@ -724,7 +726,7 @@ public class VectorizedOrcAcidRowBatchReader
         //statementId is from directory name (or 0 if there is none)
       .statementId(syntheticTxnInfo.statementId).bucket(bucketId));
     AcidUtils.Directory directoryState = AcidUtils.getAcidState(null, syntheticTxnInfo.folder, conf,
-        validWriteIdList, Ref.from(false), true, null, true);
+        validWriteIdList, Ref.from(false), true);
     for (HadoopShims.HdfsFileStatusWithId f : directoryState.getOriginalFiles()) {
       int bucketIdFromPath = AcidUtils.parseBucketId(f.getFileStatus().getPath());
       if (bucketIdFromPath != bucketId) {
@@ -1133,7 +1135,7 @@ public class VectorizedOrcAcidRowBatchReader
         assert !orcSplit.isOriginal() : "If this now supports Original splits, set up mergeOptions properly";
         this.deleteRecords = new OrcRawRecordMerger(conf, true, null, false, bucket,
                                                     validWriteIdList, readerOptions, deleteDeltas,
-                                                    mergerOptions);
+                                                    mergerOptions, null);
         this.deleteRecordKey = new OrcRawRecordMerger.ReaderKey();
         this.deleteRecordValue = this.deleteRecords.createValue();
         // Initialize the first value in the delete reader.
@@ -1564,20 +1566,13 @@ public class VectorizedOrcAcidRowBatchReader
           for (Path deleteDeltaDir : deleteDeltaDirs) {
             FileSystem fs = deleteDeltaDir.getFileSystem(conf);
             Path[] deleteDeltaFiles = OrcRawRecordMerger.getDeltaFiles(deleteDeltaDir, bucket,
-                new OrcRawRecordMerger.Options().isCompacting(false));
+                new OrcRawRecordMerger.Options().isCompacting(false), null);
             for (Path deleteDeltaFile : deleteDeltaFiles) {
-              // NOTE: Calling last flush length below is more for future-proofing when we have
-              // streaming deletes. But currently we don't support streaming deletes, and this can
-              // be removed if this becomes a performance issue.
-              long length = OrcAcidUtils.getLastFlushLength(fs, deleteDeltaFile);
-              // NOTE: A check for existence of deleteDeltaFile is required because we may not have
-              // deletes for the bucket being taken into consideration for this split processing.
-              if (length != -1 && fs.exists(deleteDeltaFile)) {
+              try {
                 /**
                  * todo: we have OrcSplit.orcTail so we should be able to get stats from there
                  */
-                Reader deleteDeltaReader = OrcFile.createReader(deleteDeltaFile,
-                    OrcFile.readerOptions(conf).maxLength(length));
+                Reader deleteDeltaReader = OrcFile.createReader(deleteDeltaFile, OrcFile.readerOptions(conf));
                 if (deleteDeltaReader.getNumberOfRows() <= 0) {
                   continue; // just a safe check to ensure that we are not reading empty delete files.
                 }
@@ -1591,6 +1586,8 @@ public class VectorizedOrcAcidRowBatchReader
                 } else {
                   deleteReaderValue.close();
                 }
+              } catch (FileNotFoundException fnf) {
+                // We may not have deletes for the bucket being taken into consideration for this split processing.
               }
             }
           }

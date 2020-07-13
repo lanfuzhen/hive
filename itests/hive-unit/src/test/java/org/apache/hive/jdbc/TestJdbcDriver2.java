@@ -27,6 +27,7 @@ import org.apache.hadoop.hive.common.type.HiveIntervalYearMonth;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.conf.HiveConf.ConfVars;
 import org.apache.hadoop.hive.metastore.TableType;
+import org.apache.hadoop.hive.metastore.txn.TxnDbUtil;
 import org.apache.hadoop.hive.ql.exec.UDF;
 import org.apache.hadoop.hive.ql.exec.repl.ReplDumpWork;
 import org.apache.hadoop.hive.ql.processors.DfsProcessor;
@@ -188,8 +189,11 @@ public class TestJdbcDriver2 {
 
   @SuppressWarnings("deprecation")
   @BeforeClass
-  public static void setUpBeforeClass() throws SQLException, ClassNotFoundException {
+  public static void setUpBeforeClass() throws Exception {
     conf = new HiveConf(TestJdbcDriver2.class);
+    HiveConf initConf = new HiveConf(conf);
+    TxnDbUtil.setConfValues(initConf);
+    TxnDbUtil.prepDb(initConf);
     dataFileDir = conf.get("test.data.files").replace('\\', '/')
         .replace("c:", "");
     dataFilePath = new Path(dataFileDir, "kv1.txt");
@@ -202,6 +206,8 @@ public class TestJdbcDriver2 {
     System.setProperty(ConfVars.HIVE_AUTHORIZATION_MANAGER.varname,
         "org.apache.hadoop.hive.ql.security.authorization.DefaultHiveAuthorizationProvider");
     System.setProperty(ConfVars.HIVE_SERVER2_PARALLEL_OPS_IN_SESSION.varname, "false");
+    System.setProperty(ConfVars.REPLCMENABLED.varname, "true");
+    System.setProperty(ConfVars.REPLCMDIR.varname, "cmroot");
     con = getConnection(defaultDbName + ";create=true");
     Statement stmt = con.createStatement();
     assertNotNull("Statement is null", stmt);
@@ -2828,6 +2834,8 @@ public class TestJdbcDriver2 {
       stmt.execute("set hive.metastore.transactional.event.listeners =" +
               " org.apache.hive.hcatalog.listener.DbNotificationListener");
       stmt.execute("set hive.metastore.dml.events = true");
+      stmt.execute("set hive.repl.cm.enabled = true");
+      stmt.execute("set hive.repl.cmrootdir = cmroot");
       stmt.execute("create database " + primaryDb + " with dbproperties('repl.source.for'='1,2,3')");
       stmt.execute("create table " + primaryTblName + " (id int)");
       stmt.execute("insert into " + primaryTblName + " values (1), (2)");
@@ -2846,8 +2854,6 @@ public class TestJdbcDriver2 {
       ResultSet replDumpRslt = stmt.executeQuery("repl dump " + primaryDb +
               " with ('hive.repl.rootdir' = '" + replDir + "')");
       assertTrue(replDumpRslt.next());
-      String dumpLocation = replDumpRslt.getString(1);
-      String lastReplId = replDumpRslt.getString(2);
       List<String> logs = stmt.getQueryLog(false, 10000);
       stmt.close();
       LOG.info("Query_Log for Bootstrap Dump");
@@ -2861,7 +2867,8 @@ public class TestJdbcDriver2 {
 
       // Bootstrap load
       stmt = (HiveStatement) con.createStatement();
-      stmt.execute("repl load " + replicaDb + " from '" + dumpLocation + "'");
+      stmt.execute("repl load " + primaryDb + " into " + replicaDb +
+              " with ('hive.repl.rootdir' = '" + replDir + "')");
       logs = stmt.getQueryLog(false, 10000);
       stmt.close();
       LOG.info("Query_Log for Bootstrap Load");
@@ -2882,11 +2889,9 @@ public class TestJdbcDriver2 {
       // Incremental dump
       stmt = (HiveStatement) con.createStatement();
       advanceDumpDir();
-      replDumpRslt = stmt.executeQuery("repl dump " + primaryDb + " from " + lastReplId +
+      replDumpRslt = stmt.executeQuery("repl dump " + primaryDb +
               " with ('hive.repl.rootdir' = '" + replDir + "')");
       assertTrue(replDumpRslt.next());
-      dumpLocation = replDumpRslt.getString(1);
-      lastReplId = replDumpRslt.getString(2);
       logs = stmt.getQueryLog(false, 10000);
       stmt.close();
       LOG.info("Query_Log for Incremental Dump");
@@ -2900,7 +2905,8 @@ public class TestJdbcDriver2 {
 
       // Incremental load
       stmt = (HiveStatement) con.createStatement();
-      stmt.execute("repl load " + replicaDb + " from '" + dumpLocation + "'");
+      stmt.execute("repl load " + primaryDb + " into " + replicaDb +
+              " with ('hive.repl.rootdir' = '" + replDir + "')");
       logs = stmt.getQueryLog(false, 10000);
       LOG.info("Query_Log for Incremental Load");
       verifyFetchedLog(logs, expectedIncrementalLoadLogs);
@@ -3101,7 +3107,7 @@ public class TestJdbcDriver2 {
 
     try {
       // invalid load path
-      stmt.execute("repl load default1 from '/tmp/junk'");
+      stmt.execute("repl load default into default1");
     } catch(SQLException e){
       assertTrue(e.getErrorCode() == ErrorMsg.REPL_LOAD_PATH_NOT_FOUND.getErrorCode());
     }
@@ -3247,5 +3253,42 @@ public class TestJdbcDriver2 {
   @Test(expected = HiveSQLException.class)
   public void testConnectInvalidDatabase() throws SQLException {
     DriverManager.getConnection("jdbc:hive2:///databasedoesnotexist", "", "");
+  }
+
+  @Test
+  public void testStatementCloseOnCompletion() throws SQLException {
+    Statement stmt = con.createStatement();
+    stmt.closeOnCompletion();
+    ResultSet res = stmt.executeQuery("select under_col from " + tableName + " limit 1");
+    assertTrue(res.next());
+    assertFalse(stmt.isClosed());
+    assertFalse(res.next());
+    assertFalse(stmt.isClosed());
+    res.close();
+    assertTrue(stmt.isClosed());
+  }
+
+  @Test
+  public void testPreparedStatementCloseOnCompletion() throws SQLException {
+    PreparedStatement stmt = con.prepareStatement("select under_col from " + tableName + " limit 1");
+    stmt.closeOnCompletion();
+    ResultSet res = stmt.executeQuery();
+    assertTrue(res.next());
+    assertFalse(stmt.isClosed());
+    assertFalse(res.next());
+    assertFalse(stmt.isClosed());
+    res.close();
+    assertTrue(stmt.isClosed());
+  }
+
+  @Test
+  public void testCloseOnAlreadyOpenedResultSetCompletion() throws Exception {
+    PreparedStatement stmt = con.prepareStatement("select under_col from " + tableName + " limit 1");
+    ResultSet res = stmt.executeQuery();
+    assertTrue(res.next());
+    stmt.closeOnCompletion();
+    assertFalse(stmt.isClosed());
+    res.close();
+    assertTrue(stmt.isClosed());
   }
 }

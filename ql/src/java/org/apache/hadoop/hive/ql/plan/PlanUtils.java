@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Collections;
 import java.util.Comparator;
+import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -63,8 +64,9 @@ import org.apache.hadoop.hive.ql.metadata.Table;
 import org.apache.hadoop.hive.ql.parse.ParseContext;
 import org.apache.hadoop.hive.ql.parse.SemanticAnalyzer;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
-import org.apache.hadoop.hive.ql.parse.TypeCheckProcFactory;
+import org.apache.hadoop.hive.ql.parse.type.ExprNodeTypeCheck;
 import org.apache.hadoop.hive.ql.session.SessionState;
+import org.apache.hadoop.hive.ql.util.NullOrdering;
 import org.apache.hadoop.hive.serde.serdeConstants;
 import org.apache.hadoop.hive.serde2.AbstractSerDe;
 import org.apache.hadoop.hive.serde2.Deserializer;
@@ -284,6 +286,7 @@ public final class PlanUtils {
       outputFormat = IgnoreKeyTextOutputFormat.class;
     }
     properties.setProperty(serdeConstants.SERIALIZATION_LIB, serdeClass.getName());
+    properties.setProperty(hive_metastoreConstants.TABLE_BUCKETING_VERSION, "-1");
     return new TableDesc(inputFormat, outputFormat, properties);
   }
 
@@ -508,7 +511,7 @@ public final class PlanUtils {
       StringBuilder nullOrder = new StringBuilder();
       for (FieldSchema f: fieldSchemas) {
         order.append("+");
-        nullOrder.append("a");
+        nullOrder.append(NullOrdering.defaultNullOrder(conf).getSign());
       }
       return new TableDesc(
           SequenceFileInputFormat.class, SequenceFileOutputFormat.class,
@@ -657,7 +660,7 @@ public final class PlanUtils {
   public static List<FieldSchema> getFieldSchemasFromColumnInfo(
       List<ColumnInfo> cols, String fieldPrefix) {
     if ((cols == null) || (cols.size() == 0)) {
-      return new ArrayList<FieldSchema>();
+      return Collections.emptyList();
     }
 
     List<FieldSchema> schemas = new ArrayList<FieldSchema>(cols.size());
@@ -707,15 +710,20 @@ public final class PlanUtils {
   public static ReduceSinkDesc getReduceSinkDesc(
       List<ExprNodeDesc> keyCols, List<ExprNodeDesc> valueCols,
       List<String> outputColumnNames, boolean includeKeyCols, int tag,
-      List<ExprNodeDesc> partitionCols, String order, String nullOrder,
+      List<ExprNodeDesc> partitionCols, String order, String nullOrder, NullOrdering defaultNullOrder,
       int numReducers, AcidUtils.Operation writeType) {
-    return getReduceSinkDesc(keyCols, keyCols.size(), valueCols,
-        new ArrayList<List<Integer>>(),
-        includeKeyCols ? outputColumnNames.subList(0, keyCols.size()) :
-          new ArrayList<String>(),
-        includeKeyCols ? outputColumnNames.subList(keyCols.size(),
-            outputColumnNames.size()) : outputColumnNames,
-        includeKeyCols, tag, partitionCols, order, nullOrder, numReducers, writeType);
+    ReduceSinkDesc reduceSinkDesc = getReduceSinkDesc(keyCols, keyCols.size(), valueCols,
+            new ArrayList<List<Integer>>(),
+            includeKeyCols ? outputColumnNames.subList(0, keyCols.size()) :
+                    new ArrayList<String>(),
+            includeKeyCols ? outputColumnNames.subList(keyCols.size(),
+                    outputColumnNames.size()) : outputColumnNames,
+            includeKeyCols, tag, partitionCols, order, nullOrder, defaultNullOrder, numReducers, writeType);
+    if (writeType == AcidUtils.Operation.UPDATE || writeType == AcidUtils.Operation.DELETE) {
+      reduceSinkDesc.setReducerTraits(EnumSet.of(ReduceSinkDesc.ReducerTraits.FIXED));
+      reduceSinkDesc.setNumReducers(1);
+    }
+    return reduceSinkDesc;
   }
 
   /**
@@ -752,7 +760,7 @@ public final class PlanUtils {
       List<String> outputKeyColumnNames,
       List<String> outputValueColumnNames,
       boolean includeKeyCols, int tag,
-      List<ExprNodeDesc> partitionCols, String order, String nullOrder,
+      List<ExprNodeDesc> partitionCols, String order, String nullOrder, NullOrdering defaultNullOrder,
       int numReducers, AcidUtils.Operation writeType) {
     TableDesc keyTable = null;
     TableDesc valueTable = null;
@@ -765,7 +773,7 @@ public final class PlanUtils {
         order = order + "+";
       }
       if (nullOrder.length() < outputKeyColumnNames.size()) {
-        nullOrder = nullOrder + "a";
+        nullOrder = nullOrder + defaultNullOrder.getSign();
       }
       keyTable = getReduceKeyTableDesc(keySchema, order, nullOrder);
       outputKeyCols.addAll(outputKeyColumnNames);
@@ -809,7 +817,8 @@ public final class PlanUtils {
   public static ReduceSinkDesc getReduceSinkDesc(
       List<ExprNodeDesc> keyCols, List<ExprNodeDesc> valueCols,
       List<String> outputColumnNames, boolean includeKey, int tag,
-      int numPartitionFields, int numReducers, AcidUtils.Operation writeType)
+      int numPartitionFields, int numReducers, AcidUtils.Operation writeType,
+      NullOrdering defaultNullOrder)
       throws SemanticException {
     return getReduceSinkDesc(keyCols, keyCols.size(), valueCols,
         new ArrayList<List<Integer>>(),
@@ -818,7 +827,7 @@ public final class PlanUtils {
         includeKey ?
             outputColumnNames.subList(keyCols.size(), outputColumnNames.size())
             : outputColumnNames,
-        includeKey, tag, numPartitionFields, numReducers, writeType);
+        includeKey, tag, numPartitionFields, numReducers, writeType, defaultNullOrder);
   }
 
   /**
@@ -853,7 +862,8 @@ public final class PlanUtils {
       List<List<Integer>> distinctColIndices,
       List<String> outputKeyColumnNames, List<String> outputValueColumnNames,
       boolean includeKey, int tag,
-      int numPartitionFields, int numReducers, AcidUtils.Operation writeType)
+      int numPartitionFields, int numReducers, AcidUtils.Operation writeType,
+      NullOrdering defaultNullOrder)
       throws SemanticException {
 
     ArrayList<ExprNodeDesc> partitionCols = new ArrayList<ExprNodeDesc>();
@@ -863,18 +873,19 @@ public final class PlanUtils {
       partitionCols.addAll(keyCols.subList(0, numPartitionFields));
     } else {
       // numPartitionFields = -1 means random partitioning
-      partitionCols.add(TypeCheckProcFactory.DefaultExprProcessor.getFuncExprNodeDesc("rand"));
+      partitionCols.add(ExprNodeTypeCheck.getExprNodeDefaultExprProcessor().
+          getFuncExprNodeDesc("rand"));
     }
 
     StringBuilder order = new StringBuilder();
     StringBuilder nullOrder = new StringBuilder();
     for (int i = 0; i < keyCols.size(); i++) {
       order.append("+");
-      nullOrder.append("a");
+      nullOrder.append(defaultNullOrder.getSign());
     }
     return getReduceSinkDesc(keyCols, numKeys, valueCols, distinctColIndices,
         outputKeyColumnNames, outputValueColumnNames, includeKey, tag,
-        partitionCols, order.toString(), nullOrder.toString(), numReducers, writeType);
+        partitionCols, order.toString(), nullOrder.toString(), defaultNullOrder, numReducers, writeType);
   }
 
   /**
@@ -1161,7 +1172,7 @@ public final class PlanUtils {
 
       // Adds tables only for create view (PPD filter can be appended by outer query)
       Table table = topOp.getConf().getTableMetadata();
-      PlanUtils.addInput(inputs, new ReadEntity(table, parentViewInfo));
+      PlanUtils.addInput(inputs, new ReadEntity(table, parentViewInfo, parentViewInfo == null));
     }
   }
 

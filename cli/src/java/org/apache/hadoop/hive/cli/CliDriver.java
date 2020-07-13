@@ -37,7 +37,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -120,11 +120,19 @@ public class CliDriver {
   public CommandProcessorResponse processCmd(String cmd) throws CommandProcessorException {
     CliSessionState ss = (CliSessionState) SessionState.get();
     ss.setLastCommand(cmd);
-
-    ss.updateThreadName();
-
     // Flush the print stream, so it doesn't include output from the last command
     ss.err.flush();
+    try {
+      ss.updateThreadName();
+      return processCmd1(cmd);
+    } finally {
+      ss.resetThreadName();
+    }
+  }
+
+  public CommandProcessorResponse processCmd1(String cmd) throws CommandProcessorException {
+    CliSessionState ss = (CliSessionState) SessionState.get();
+
     String cmd_trimmed = HiveStringUtils.removeComments(cmd).trim();
     String[] tokens = tokenizeCmd(cmd_trimmed);
     CommandProcessorResponse response = new CommandProcessorResponse();
@@ -206,7 +214,6 @@ public class CliDriver {
       }
     }
 
-    ss.resetThreadName();
     return response;
   }
 
@@ -310,7 +317,7 @@ public class CliDriver {
           }
           return res;
         } catch (CommandProcessorException e) {
-          ss.out.println("Query returned non-zero code: " + e.getResponseCode() + ", cause: " + e.getErrorMessage());
+          ss.out.println("Query returned non-zero code: " + e.getResponseCode() + ", cause: " + e.getMessage());
           throw e;
         }
       }
@@ -781,8 +788,8 @@ public class CliDriver {
 
     ss.updateThreadName();
 
-    // Initialize metadata provider class
-    CalcitePlanner.initializeMetadataProviderClass();
+    // Initialize metadata provider class and trimmer
+    CalcitePlanner.warmup();
     // Create views registry
     HiveMaterializedViewsRegistry.get().init();
 

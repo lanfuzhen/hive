@@ -28,8 +28,8 @@ import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.sql.Timestamp;
 import java.time.ZoneId;
-import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
@@ -234,7 +234,6 @@ public class SerializationUtilities {
       kryo.register(Arrays.asList("").getClass(), new ArraysAsListSerializer());
       kryo.register(new java.util.ArrayList().subList(0,0).getClass(), new ArrayListSubListSerializer());
       kryo.register(CopyOnFirstWriteProperties.class, new CopyOnFirstWritePropertiesSerializer());
-      kryo.register(MapWork.class, new MapWorkSerializer(kryo, MapWork.class));
       kryo.register(PartitionDesc.class, new PartitionDescSerializer(kryo, PartitionDesc.class));
 
       ((Kryo.DefaultInstantiatorStrategy) kryo.getInstantiatorStrategy())
@@ -565,29 +564,6 @@ public class SerializationUtilities {
   }
 
   /**
-   * We use a custom {@link com.esotericsoftware.kryo.Serializer} for {@link MapWork} objects in
-   * order to invoke any string interning code present in the "setter" methods. The fields in {@link
-   * MapWork} often store paths that contain duplicate strings, so interning them can decrease
-   * memory significantly.
-   */
-  private static class MapWorkSerializer extends FieldSerializer<MapWork> {
-
-    MapWorkSerializer(Kryo kryo, Class type) {
-      super(kryo, type);
-    }
-
-    @Override
-    public MapWork read(Kryo kryo, Input input, Class<MapWork> type) {
-      MapWork mapWork = super.read(kryo, input, type);
-      // The set methods in MapWork intern the any duplicate strings which is why we call them
-      // during de-serialization
-      mapWork.setPathToPartitionInfo(mapWork.getPathToPartitionInfo());
-      mapWork.setPathToAliases(mapWork.getPathToAliases());
-      return mapWork;
-    }
-  }
-
-  /**
    * We use a custom {@link com.esotericsoftware.kryo.Serializer} for {@link PartitionDesc} objects
    * in order to invoke any string interning code present in the "setter" methods. {@link
    * PartitionDesc} objects are usually stored by {@link MapWork} objects and contain duplicate info
@@ -718,7 +694,7 @@ public class SerializationUtilities {
    */
   public static List<Operator<?>> cloneOperatorTree(List<Operator<?>> roots) {
     if (roots.isEmpty()) {
-      return new ArrayList<>();
+      return Collections.emptyList();
     }
     ByteArrayOutputStream baos = new ByteArrayOutputStream(4096);
     CompilationOpContext ctx = roots.get(0).getCompilationOpContext();

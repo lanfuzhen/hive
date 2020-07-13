@@ -25,7 +25,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.metastore.tools.schematool.MetastoreSchemaTool;
 import org.junit.rules.ExternalResource;
 import org.slf4j.Logger;
@@ -61,14 +61,18 @@ public abstract class DatabaseRule extends ExternalResource {
 
   private boolean verbose;
 
+  public DatabaseRule() {
+    verbose = System.getProperty("verbose.schematool") != null;
+  }
+
   public DatabaseRule setVerbose(boolean verbose) {
     this.verbose = verbose;
     return this;
-  };
+  }
 
   public String getDb() {
     return HIVE_DB;
-  };
+  }
 
   /**
    * URL to use when connecting as root rather than Hive
@@ -130,10 +134,10 @@ public abstract class DatabaseRule extends ExternalResource {
       return;
     }
     try {
-      if (runCmdAndPrintStreams(buildStopCmd(), 60) != 0) {
+      if (runCmdAndPrintStreams(buildStopCmd(), 600) != 0) {
         throw new RuntimeException("Unable to stop docker container");
       }
-      if (runCmdAndPrintStreams(buildRmCmd(), 15) != 0) {
+      if (runCmdAndPrintStreams(buildRmCmd(), 600) != 0) {
         throw new RuntimeException("Unable to remove docker container");
       }
     } catch (InterruptedException | IOException e) {
@@ -143,7 +147,7 @@ public abstract class DatabaseRule extends ExternalResource {
 
   protected String getDockerContainerName(){
     return String.format("metastore-test-%s-install", getDbType());
-  };
+  }
 
   private ProcessResults runCmd(String[] cmd, long secondsToWait)
       throws IOException, InterruptedException {
@@ -271,7 +275,7 @@ public abstract class DatabaseRule extends ExternalResource {
         "-dbType",
         getDbType(),
         "-userName",
-        HIVE_USER,
+        getHiveUser(),
         "-passWord",
         getHivePassword(),
         "-url",
@@ -284,5 +288,21 @@ public abstract class DatabaseRule extends ExternalResource {
   public void install() {
     createUser();
     installLatest();
+  }
+
+  public int validateSchema() {
+    return new MetastoreSchemaTool().setVerbose(verbose).run(buildArray(
+        "-validate",
+        "-dbType",
+        getDbType(),
+        "-userName",
+        getHiveUser(),
+        "-passWord",
+        getHivePassword(),
+        "-url",
+        getJdbcUrl(),
+        "-driver",
+        getJdbcDriver()
+    ));
   }
 }

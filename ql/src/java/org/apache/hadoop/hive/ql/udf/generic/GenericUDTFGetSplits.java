@@ -128,11 +128,13 @@ import com.google.common.base.Preconditions;
 @UDFType(deterministic = false)
 public class GenericUDTFGetSplits extends GenericUDTF {
   private static final Logger LOG = LoggerFactory.getLogger(GenericUDTFGetSplits.class);
+  private static String sha = null;
 
   protected transient StringObjectInspector stringOI;
   protected transient IntObjectInspector intOI;
   protected transient JobConf jc;
   private boolean orderByQuery;
+  private boolean limitQuery;
   private boolean forceSingleSplit;
   protected ByteArrayOutputStream bos = new ByteArrayOutputStream(1024);
   protected DataOutput dos = new DataOutputStream(bos);
@@ -306,7 +308,7 @@ public class GenericUDTFGetSplits extends GenericUDTF {
     // So initialize the new Driver with a new TxnManager so that it does not use the
     // Session TxnManager that is already in use.
     HiveTxnManager txnManager = TxnManagerFactory.getTxnManagerFactory().getTxnManager(conf);
-    Driver driver = new Driver(new QueryState.Builder().withHiveConf(conf).nonIsolated().build(), null, null, txnManager);
+    Driver driver = new Driver(new QueryState.Builder().withHiveConf(conf).nonIsolated().build(), null, txnManager);
     DriverCleanup driverCleanup = new DriverCleanup(driver, txnManager, splitsAppId.toString());
     boolean needsCleanup = true;
     try {
@@ -318,6 +320,7 @@ public class GenericUDTFGetSplits extends GenericUDTF {
 
       QueryPlan plan = driver.getPlan();
       orderByQuery = plan.getQueryProperties().hasOrderBy() || plan.getQueryProperties().hasOuterOrderBy();
+      limitQuery = plan.getQueryProperties().getOuterQueryLimit() != -1;
       forceSingleSplit = orderByQuery &&
         HiveConf.getBoolVar(conf, ConfVars.LLAP_EXTERNAL_SPLITS_ORDER_BY_FORCE_SINGLE_SPLIT);
       List<Task<?>> roots = plan.getRootTasks();
@@ -334,9 +337,10 @@ public class GenericUDTFGetSplits extends GenericUDTF {
       } else {
         tezWork = ((TezTask) roots.get(0)).getWork();
       }
-
-      if (tezWork == null || tezWork.getAllWork().size() != 1) {
-
+      // A simple limit query (select * from table limit n) generates only mapper work (no reduce phase).
+      // This can create multiple splits ignoring limit constraint, and multiple llap daemons working on those splits
+      // return more than "n" rows. Therefore, a limit query needs to be materialized.
+      if (tezWork == null || tezWork.getAllWork().size() != 1 || limitQuery) {
         String tableName = "table_" + UUID.randomUUID().toString().replaceAll("-", "");
 
         String storageFormatString = getTempTableStorageFormatString(conf);
@@ -440,7 +444,6 @@ public class GenericUDTFGetSplits extends GenericUDTF {
     JobConf wxConf = utils.initializeVertexConf(job, ctx, mapWork);
     // TODO: should we also whitelist input formats here? from mapred.input.format.class
     Path scratchDir = utils.createTezDir(ctx.getMRScratchDir(), job);
-    FileSystem fs = scratchDir.getFileSystem(job);
     try {
       LocalResource appJarLr = createJarLocalResource(utils.getExecJarPathLocal(ctx.getConf()), utils, job);
 
@@ -453,8 +456,8 @@ public class GenericUDTFGetSplits extends GenericUDTF {
       // Update the queryId to use the generated applicationId. See comment below about
       // why this is done.
       HiveConf.setVar(wxConf, HiveConf.ConfVars.HIVEQUERYID, applicationId.toString());
-      Vertex wx = utils.createVertex(wxConf, mapWork, scratchDir, fs, ctx, false, work,
-          work.getVertexType(mapWork), DagUtils.createTezLrMap(appJarLr, null));
+      Vertex wx = utils.createVertex(wxConf, mapWork, scratchDir, work,
+          DagUtils.createTezLrMap(appJarLr, null));
       String vertexName = wx.getName();
       dag.addVertex(wx);
       utils.addCredentials(mapWork, dag);
@@ -701,7 +704,9 @@ public class GenericUDTFGetSplits extends GenericUDTF {
     Path destDirPath = destDirStatus.getPath();
 
     Path localFile = new Path(localJarPath);
-    String sha = getSha(localFile, conf);
+    if (sha == null || !destDirPath.toString().contains(sha)) {
+      sha = getSha(localFile, conf);
+    }
 
     String destFileName = localFile.getName();
 

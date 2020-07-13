@@ -89,7 +89,7 @@ STAGE PLANS:
                       Statistics: Num rows: 12288 Data size: 36696 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 12288 Data size: 36696 Basic stats: COMPLETE Column stats: COMPLETE
@@ -218,7 +218,7 @@ STAGE PLANS:
                       Statistics: Num rows: 12288 Data size: 36696 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 12288 Data size: 36696 Basic stats: COMPLETE Column stats: COMPLETE
@@ -316,7 +316,7 @@ STAGE PLANS:
                           1 _col0 (type: int)
                         input vertices:
                           1 Map 3
-                        Statistics: Num rows: 18464 Data size: 147712 Basic stats: COMPLETE Column stats: COMPLETE
+                        Statistics: Num rows: 13785 Data size: 110280 Basic stats: COMPLETE Column stats: COMPLETE
                         Group By Operator
                           aggregations: count()
                           minReductionHashAggr: 0.99
@@ -344,7 +344,7 @@ STAGE PLANS:
                       Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
@@ -440,7 +440,7 @@ STAGE PLANS:
                           1 _col0 (type: int)
                         input vertices:
                           1 Map 3
-                        Statistics: Num rows: 18464 Data size: 147712 Basic stats: COMPLETE Column stats: COMPLETE
+                        Statistics: Num rows: 13785 Data size: 110280 Basic stats: COMPLETE Column stats: COMPLETE
                         HybridGraceHashJoin: true
                         Group By Operator
                           aggregations: count()
@@ -469,7 +469,7 @@ STAGE PLANS:
                       Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
@@ -561,7 +561,7 @@ STAGE PLANS:
                         1 _col0 (type: int)
                       input vertices:
                         1 Map 3
-                      Statistics: Num rows: 21560 Data size: 172480 Basic stats: COMPLETE Column stats: COMPLETE
+                      Statistics: Num rows: 18466 Data size: 147728 Basic stats: COMPLETE Column stats: COMPLETE
                       Group By Operator
                         aggregations: count()
                         minReductionHashAggr: 0.99
@@ -589,7 +589,7 @@ STAGE PLANS:
                       Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
@@ -681,7 +681,7 @@ STAGE PLANS:
                         1 _col0 (type: int)
                       input vertices:
                         1 Map 3
-                      Statistics: Num rows: 21560 Data size: 172480 Basic stats: COMPLETE Column stats: COMPLETE
+                      Statistics: Num rows: 18466 Data size: 147728 Basic stats: COMPLETE Column stats: COMPLETE
                       HybridGraceHashJoin: true
                       Group By Operator
                         aggregations: count()
@@ -710,7 +710,7 @@ STAGE PLANS:
                       Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: int)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: int)
                         Statistics: Num rows: 9173 Data size: 27396 Basic stats: COMPLETE Column stats: COMPLETE
@@ -870,7 +870,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
@@ -1003,7 +1003,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
@@ -1101,7 +1101,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
@@ -1121,7 +1121,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
@@ -1239,7 +1239,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
@@ -1259,7 +1259,7 @@ STAGE PLANS:
                       Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE
                       Reduce Output Operator
                         key expressions: _col0 (type: string)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: string)
                         Statistics: Num rows: 499 Data size: 87443 Basic stats: COMPLETE Column stats: NONE

@@ -20,7 +20,7 @@ package org.apache.hadoop.hive.ql.io.merge;
 
 import org.apache.hadoop.hive.ql.exec.mr.ExecDriver;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -99,6 +99,9 @@ public class MergeFileTask extends Task<MergeFileWork> implements Serializable,
       job.setOutputKeyClass(NullWritable.class);
       job.setOutputValueClass(NullWritable.class);
       job.setNumReduceTasks(0);
+      // HIVE-23354 enforces that MR speculative execution is disabled
+      job.setBoolean(MRJobConfig.REDUCE_SPECULATIVE, false);
+      job.setBoolean(MRJobConfig.MAP_SPECULATIVE, false);
 
       // create the temp directories
       Path outputPath = work.getOutputDir();
@@ -167,7 +170,7 @@ public class MergeFileTask extends Task<MergeFileWork> implements Serializable,
       }
 
       // Has to use full name to make sure it does not conflict with
-      // org.apache.commons.lang.StringUtils
+      // org.apache.commons.lang3.StringUtils
       console.printError(mesg, "\n"
           + org.apache.hadoop.util.StringUtils.stringifyException(e));
 

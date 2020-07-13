@@ -34,6 +34,7 @@ import java.util.Stack;
 import org.antlr.runtime.tree.CommonTree;
 import org.antlr.runtime.tree.Tree;
 import org.apache.calcite.rel.RelNode;
+import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.common.type.HiveDecimal;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.FieldSchema;
@@ -45,6 +46,7 @@ import org.apache.hadoop.hive.ql.exec.Utilities;
 import org.apache.hadoop.hive.ql.lib.Node;
 import org.apache.hadoop.hive.ql.optimizer.calcite.translator.ASTBuilder;
 import org.apache.hadoop.hive.ql.parse.CalcitePlanner.ASTSearcher;
+import org.apache.hadoop.hive.ql.parse.type.TypeCheckProcFactory;
 import org.apache.hadoop.hive.ql.plan.ExprNodeDesc;
 import org.apache.hadoop.hive.serde2.typeinfo.CharTypeInfo;
 import org.apache.hadoop.hive.serde2.typeinfo.DecimalTypeInfo;
@@ -76,7 +78,18 @@ public final class ParseUtils {
   public static ASTNode parse(
       String command, Context ctx, String viewFullyQualifiedName) throws ParseException {
     ParseDriver pd = new ParseDriver();
-    ASTNode tree = pd.parse(command, ctx, viewFullyQualifiedName);
+    Configuration configuration = ctx != null ? ctx.getConf() : null;
+    ParseResult parseResult = pd.parse(command, configuration);
+    if (ctx != null) {
+      if (viewFullyQualifiedName == null) {
+        // Top level query
+        ctx.setTokenRewriteStream(parseResult.getTokenRewriteStream());
+      } else {
+        // It is a view
+        ctx.addViewTokenRewriteStream(viewFullyQualifiedName, parseResult.getTokenRewriteStream());
+      }
+    }
+    ASTNode tree = parseResult.getTree();
     tree = findRootNonNullToken(tree);
     handleSetColRefs(tree);
     return tree;
@@ -144,24 +157,6 @@ public final class ParseUtils {
       colNames.add(colName);
     }
     return colNames;
-  }
-
-  /**
-   * @param column  column expression to convert
-   * @param tableFieldTypeInfo TypeInfo to convert to
-   * @return Expression converting column to the type specified by tableFieldTypeInfo
-   */
-  public static ExprNodeDesc createConversionCast(ExprNodeDesc column, PrimitiveTypeInfo tableFieldTypeInfo)
-      throws SemanticException {
-    // Get base type, since type string may be parameterized
-    String baseType = TypeInfoUtils.getBaseName(tableFieldTypeInfo.getTypeName());
-
-    // If the type cast UDF is for a parameterized type, then it should implement
-    // the SettableUDF interface so that we can pass in the params.
-    // Not sure if this is the cleanest solution, but there does need to be a way
-    // to provide the type params to the type cast.
-    return TypeCheckProcFactory.DefaultExprProcessor.getFuncExprNodeDescWithUdfData(baseType,
-        tableFieldTypeInfo, column);
   }
 
   public static VarcharTypeInfo getVarcharTypeInfo(ASTNode node)

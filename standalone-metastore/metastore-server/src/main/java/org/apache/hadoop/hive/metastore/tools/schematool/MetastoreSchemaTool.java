@@ -21,7 +21,7 @@ import com.google.common.annotations.VisibleForTesting;
 import org.apache.commons.cli.OptionGroup;
 import org.apache.commons.cli.ParseException;
 import org.apache.commons.io.output.NullOutputStream;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.HiveMetaException;
@@ -442,6 +442,8 @@ public class MetastoreSchemaTool {
         task = new SchemaToolTaskCreateCatalog();
       } else if (cmdLine.hasOption("alterCatalog")) {
         task = new SchemaToolTaskAlterCatalog();
+      } else if (cmdLine.hasOption("mergeCatalog")) {
+        task = new SchemaToolTaskMergeCatalog();
       } else if (cmdLine.hasOption("moveDatabase")) {
         task = new SchemaToolTaskMoveDatabase();
       } else if (cmdLine.hasOption("moveTable")) {

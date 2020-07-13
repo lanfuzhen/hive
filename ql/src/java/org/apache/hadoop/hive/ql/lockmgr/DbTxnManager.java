@@ -39,6 +39,7 @@ import org.apache.hadoop.hive.metastore.api.TxnAbortedException;
 import org.apache.hadoop.hive.metastore.api.TxnToWriteId;
 import org.apache.hadoop.hive.metastore.api.CommitTxnRequest;
 import org.apache.hadoop.hive.metastore.api.DataOperationType;
+import org.apache.hadoop.hive.metastore.api.GetOpenTxnsResponse;
 import org.apache.hadoop.hive.metastore.api.TxnType;
 import org.apache.hadoop.hive.metastore.txn.TxnCommonUtils;
 import org.apache.hadoop.hive.ql.Context;
@@ -95,11 +96,12 @@ public final class DbTxnManager extends HiveTxnManagerImpl {
 
   static final private String CLASS_NAME = DbTxnManager.class.getName();
   static final private Logger LOG = LoggerFactory.getLogger(CLASS_NAME);
+  public static final String GLOBAL_LOCKS = "__GLOBAL_LOCKS";
 
   private volatile DbLockManager lockMgr = null;
   /**
-   * The Metastore NEXT_TXN_ID.NTXN_NEXT is initialized to 1; it contains the next available
-   * transaction id.  Thus is 1 is first transaction id.
+   * The Metastore TXNS sequence is initialized to 1.
+   * Thus is 1 is first transaction id.
    */
   private volatile long txnId = 0;
 
@@ -411,6 +413,8 @@ public final class DbTxnManager extends HiveTxnManagerImpl {
     rqstBuilder.setTransactionId(txnId)
         .setUser(username);
 
+    rqstBuilder.setZeroWaitReadEnabled(!conf.getBoolVar(HiveConf.ConfVars.TXN_OVERWRITE_X_LOCK) ||
+        !conf.getBoolVar(HiveConf.ConfVars.TXN_WRITE_X_LOCK));
 
     // Make sure we need locks.  It's possible there's nothing to lock in
     // this operation.
@@ -418,12 +422,12 @@ public final class DbTxnManager extends HiveTxnManagerImpl {
       LOG.debug("No locks needed for queryId=" + queryId);
       return null;
     }
-    List<LockComponent> lockComponents = AcidUtils.makeLockComponents(plan.getOutputs(), plan.getInputs(), conf);
-
+    List<LockComponent> lockComponents = AcidUtils.makeLockComponents(plan.getOutputs(), plan.getInputs(),
+        ctx.getOperation(), conf);
     lockComponents.addAll(getGlobalLocks(ctx.getConf()));
 
     //It's possible there's nothing to lock even if we have w/r entities.
-    if(lockComponents.isEmpty()) {
+    if (lockComponents.isEmpty()) {
       LOG.debug("No locks needed for queryId=" + queryId);
       return null;
     }
@@ -449,7 +453,7 @@ public final class DbTxnManager extends HiveTxnManagerImpl {
       LockComponentBuilder compBuilder = new LockComponentBuilder();
       compBuilder.setExclusive();
       compBuilder.setOperationType(DataOperationType.UPDATE);
-      compBuilder.setDbName("__GLOBAL_LOCKS");
+      compBuilder.setDbName(GLOBAL_LOCKS);
       compBuilder.setTableName(lockName);
       globalLocks.add(compBuilder.build());
       LOG.debug("Adding global lock: " + lockName);
@@ -745,6 +749,15 @@ public final class DbTxnManager extends HiveTxnManagerImpl {
       if (isLockAcquired) {
         heartbeatTaskLock.unlock();
       }
+    }
+  }
+
+  @Override
+  public GetOpenTxnsResponse getOpenTxns() throws LockException {
+    try {
+      return getMS().getOpenTxns();
+    } catch (TException e) {
+      throw new LockException(ErrorMsg.METASTORE_COMMUNICATION_FAILED.getMsg(), e);
     }
   }
 

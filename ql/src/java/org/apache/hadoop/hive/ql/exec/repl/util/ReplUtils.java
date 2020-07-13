@@ -28,17 +28,20 @@ import org.apache.hadoop.hive.metastore.TableType;
 import org.apache.hadoop.hive.metastore.api.ColumnStatistics;
 import org.apache.hadoop.hive.metastore.api.EnvironmentContext;
 import org.apache.hadoop.hive.metastore.api.InvalidOperationException;
+import org.apache.hadoop.hive.metastore.utils.StringUtils;
 import org.apache.hadoop.hive.ql.ErrorMsg;
 import org.apache.hadoop.hive.ql.ddl.DDLWork;
-import org.apache.hadoop.hive.ql.ddl.table.misc.AlterTableSetPropertiesDesc;
+import org.apache.hadoop.hive.ql.ddl.table.misc.properties.AlterTableSetPropertiesDesc;
+import org.apache.hadoop.hive.ql.ddl.table.partition.PartitionUtils;
 import org.apache.hadoop.hive.ql.exec.Task;
 import org.apache.hadoop.hive.ql.exec.TaskFactory;
 import org.apache.hadoop.hive.ql.exec.repl.ReplStateLogWork;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.metadata.Table;
-import org.apache.hadoop.hive.ql.parse.DDLSemanticAnalyzer;
+import org.apache.hadoop.hive.ql.parse.EximUtil;
 import org.apache.hadoop.hive.ql.parse.SemanticException;
 import org.apache.hadoop.hive.ql.parse.repl.ReplLogger;
+import org.apache.hadoop.hive.ql.parse.repl.metric.ReplicationMetricCollector;
 import org.apache.hadoop.hive.ql.plan.ColumnStatsUpdateWork;
 import org.apache.hadoop.hive.ql.plan.ReplTxnWork;
 import org.apache.hadoop.hive.ql.plan.ExprNodeColumnDesc;
@@ -52,12 +55,12 @@ import org.apache.hadoop.hive.ql.parse.repl.load.UpdatedMetaDataTracker;
 import org.apache.thrift.TException;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.io.Serializable;
 
 import static org.apache.hadoop.hive.ql.util.HiveStrictManagedMigration.TableMigrationOption.MANAGED;
 
@@ -71,15 +74,30 @@ public class ReplUtils {
   // tasks.
   public static final String REPL_CURRENT_TBL_WRITE_ID = "hive.repl.current.table.write.id";
 
-  // Configuration to be received via WITH clause of REPL LOAD to clean tables from any previously failed
-  // bootstrap load.
-  public static final String REPL_CLEAN_TABLES_FROM_BOOTSTRAP_CONFIG = "hive.repl.clean.tables.from.bootstrap";
-
   public static final String FUNCTIONS_ROOT_DIR_NAME = "_functions";
   public static final String CONSTRAINTS_ROOT_DIR_NAME = "_constraints";
 
   // Root directory for dumping bootstrapped tables along with incremental events dump.
   public static final String INC_BOOTSTRAP_ROOT_DIR_NAME = "_bootstrap";
+
+  // Root base directory name for hive.
+  public static final String REPL_HIVE_BASE_DIR = "hive";
+
+  // Root base directory name for ranger.
+  public static final String REPL_RANGER_BASE_DIR = "ranger";
+
+  // Root base directory name for atlas.
+  public static final String REPL_ATLAS_BASE_DIR = "atlas";
+
+  // Atlas meta data export file.
+  public static final String REPL_ATLAS_EXPORT_FILE_NAME = "atlas_export.zip";
+
+  // Config for hadoop default file system.
+  public static final String DEFAULT_FS_CONFIG = "fs.defaultFS";
+
+  // Cluster name separator, used when the cluster name contains data center name as well, e.g. dc$mycluster1.
+  public static final String CLUSTER_NAME_SEPARATOR = "$";
+
 
   // Name of the directory which stores the list of tables included in the policy in case of table level replication.
   // One file per database, named after the db name. The directory is not created for db level replication.
@@ -97,11 +115,33 @@ public class ReplUtils {
   // seen in production or in case of tests other than the ones where it's required.
   public static final String REPL_DUMP_INCLUDE_ACID_TABLES = "hive.repl.dump.include.acid.tables";
 
+  // HDFS Config to define the maximum number of items a directory may contain.
+  public static final String DFS_MAX_DIR_ITEMS_CONFIG = "dfs.namenode.fs-limits.max-directory-items";
+
+  // Reserved number of items to accommodate operational files in the dump root dir.
+  public static final int RESERVED_DIR_ITEMS_COUNT = 10;
+
+  public static final String RANGER_AUTHORIZER = "ranger";
+
+  public static final String HIVE_RANGER_POLICIES_FILE_NAME = "ranger_policies.json";
+
+  public static final String RANGER_REST_URL = "ranger.plugin.hive.policy.rest.url";
+
+  public static final String RANGER_HIVE_SERVICE_NAME = "ranger.plugin.hive.service.name";
+
+  public static final String RANGER_CONFIGURATION_RESOURCE_NAME = "ranger-hive-security.xml";
   /**
    * Bootstrap REPL LOAD operation type on the examined object based on ckpt state.
    */
   public enum ReplLoadOpType {
     LOAD_NEW, LOAD_SKIP, LOAD_REPLACE
+  }
+
+  /**
+   * Replication Metrics.
+   */
+  public enum MetricName {
+    TABLES, FUNCTIONS, EVENTS, POLICIES, ENTITIES
   }
 
   public static Map<Integer, List<ExprNodeGenericFuncDesc>> genPartSpecs(
@@ -123,9 +163,9 @@ public class ReplUtils {
         String type = table.getPartColByName(key).getType();
         PrimitiveTypeInfo pti = TypeInfoFactory.getPrimitiveTypeInfo(type);
         ExprNodeColumnDesc column = new ExprNodeColumnDesc(pti, key, null, true);
-        ExprNodeGenericFuncDesc op = DDLSemanticAnalyzer.makeBinaryPredicate(
+        ExprNodeGenericFuncDesc op = PartitionUtils.makeBinaryPredicate(
                 "=", column, new ExprNodeConstantDesc(TypeInfoFactory.stringTypeInfo, val));
-        expr = (expr == null) ? op : DDLSemanticAnalyzer.makeBinaryPredicate("and", expr, op);
+        expr = (expr == null) ? op : PartitionUtils.makeBinaryPredicate("and", expr, op);
       }
       if (expr != null) {
         partitionDesc.add(expr);
@@ -137,10 +177,12 @@ public class ReplUtils {
     return partSpecs;
   }
 
-  public static Task<?> getTableReplLogTask(ImportTableDesc tableDesc, ReplLogger replLogger, HiveConf conf)
+  public static Task<?> getTableReplLogTask(ImportTableDesc tableDesc, ReplLogger replLogger, HiveConf conf,
+                                            ReplicationMetricCollector metricCollector)
           throws SemanticException {
     TableType tableType = tableDesc.isExternal() ? TableType.EXTERNAL_TABLE : tableDesc.tableType();
-    ReplStateLogWork replLogWork = new ReplStateLogWork(replLogger, tableDesc.getTableName(), tableType);
+    ReplStateLogWork replLogWork = new ReplStateLogWork(replLogger, metricCollector,
+        tableDesc.getTableName(), tableType);
     return TaskFactory.get(replLogWork, conf);
   }
 
@@ -166,6 +208,15 @@ public class ReplUtils {
               props.get(REPL_CHECKPOINT_KEY)));
     }
     return false;
+  }
+
+  public static String getNonEmpty(String configParam, HiveConf hiveConf, String errorMsgFormat)
+          throws SemanticException {
+    String val = hiveConf.get(configParam);
+    if (StringUtils.isEmpty(val)) {
+      throw new SemanticException(String.format(errorMsgFormat, configParam));
+    }
+    return val;
   }
 
   public static boolean isTableMigratingToTransactional(HiveConf conf,
@@ -238,7 +289,8 @@ public class ReplUtils {
     return p -> {
       try {
         return fs.isDirectory(p) && !p.getName().equalsIgnoreCase(ReplUtils.INC_BOOTSTRAP_ROOT_DIR_NAME)
-                && !p.getName().equalsIgnoreCase(ReplUtils.REPL_TABLE_LIST_DIR_NAME);
+                && !p.getName().equalsIgnoreCase(ReplUtils.REPL_TABLE_LIST_DIR_NAME)
+                && !p.getName().equalsIgnoreCase(EximUtil.METADATA_PATH_NAME);
       } catch (IOException e) {
         throw new RuntimeException(e);
       }
@@ -248,7 +300,8 @@ public class ReplUtils {
   public static PathFilter getBootstrapDirectoryFilter(final FileSystem fs) {
     return p -> {
       try {
-        return fs.isDirectory(p) && !p.getName().equalsIgnoreCase(ReplUtils.REPL_TABLE_LIST_DIR_NAME);
+        return fs.isDirectory(p) && !p.getName().equalsIgnoreCase(ReplUtils.REPL_TABLE_LIST_DIR_NAME)
+                && !p.getName().equalsIgnoreCase(EximUtil.METADATA_PATH_NAME);
       } catch (IOException e) {
         throw new RuntimeException(e);
       }

@@ -18,6 +18,7 @@
 package org.apache.hadoop.hive.metastore;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.common.ValidReaderWriteIdList;
 import org.apache.hadoop.hive.common.ValidTxnList;
 import org.apache.hadoop.hive.common.ValidReadTxnList;
 import org.apache.hadoop.hive.metastore.annotation.MetastoreUnitTest;
@@ -26,16 +27,21 @@ import org.apache.hadoop.hive.metastore.api.Database;
 import org.apache.hadoop.hive.metastore.api.LockResponse;
 import org.apache.hadoop.hive.metastore.api.LockState;
 import org.apache.hadoop.hive.metastore.api.Table;
+import org.apache.hadoop.hive.metastore.api.TableValidWriteIds;
 import org.apache.hadoop.hive.metastore.api.TxnType;
 import org.apache.hadoop.hive.metastore.client.builder.DatabaseBuilder;
 import org.apache.hadoop.hive.metastore.client.builder.TableBuilder;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf.ConfVars;
+import org.apache.hadoop.hive.metastore.txn.TxnCommonUtils;
 import org.apache.hadoop.hive.metastore.txn.TxnDbUtil;
 import org.apache.hadoop.hive.metastore.txn.TxnStore;
+import org.apache.hadoop.hive.metastore.txn.TxnUtils;
+import org.apache.thrift.TException;
 import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
+import org.junit.BeforeClass;
 import org.junit.Test;
 import org.junit.Rule;
 import org.junit.experimental.categories.Category;
@@ -45,6 +51,7 @@ import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.Collections;
 import java.util.List;
 
 /**
@@ -62,8 +69,8 @@ import java.util.List;
 @Category(MetastoreUnitTest.class)
 public class TestHiveMetaStoreTxns {
 
-  private final Configuration conf = MetastoreConf.newMetastoreConf();
-  private IMetaStoreClient client;
+  private static Configuration conf = MetastoreConf.newMetastoreConf();
+  private static IMetaStoreClient client;
   private Connection conn;
 
   @Rule
@@ -216,13 +223,13 @@ public class TestHiveMetaStoreTxns {
     rqstBuilder.addLockComponent(new LockComponentBuilder()
         .setDbName("mydb")
         .setTableName("yourtable")
-        .setSemiShared()
+        .setSharedWrite()
         .setOperationType(DataOperationType.NO_TXN)
         .build());
     rqstBuilder.addLockComponent(new LockComponentBuilder()
         .setDbName("yourdb")
         .setOperationType(DataOperationType.NO_TXN)
-        .setShared()
+        .setSharedRead()
         .build());
     rqstBuilder.setUser("fred");
 
@@ -249,18 +256,18 @@ public class TestHiveMetaStoreTxns {
         .setDbName("mydb")
         .setTableName("mytable")
         .setPartitionName("mypartition")
-        .setSemiShared()
+        .setSharedWrite()
         .setOperationType(DataOperationType.UPDATE)
         .build())
       .addLockComponent(new LockComponentBuilder()
         .setDbName("mydb")
         .setTableName("yourtable")
-        .setSemiShared()
+        .setSharedWrite()
         .setOperationType(DataOperationType.UPDATE)
         .build())
       .addLockComponent(new LockComponentBuilder()
         .setDbName("yourdb")
-        .setShared()
+        .setSharedRead()
         .setOperationType(DataOperationType.SELECT)
         .build())
       .setUser("fred");
@@ -341,13 +348,62 @@ public class TestHiveMetaStoreTxns {
     client.allocateTableWriteId(txnId, "db", "tbl");
   }
 
-  @Before
-  public void setUp() throws Exception {
+  @Test
+  public void testGetValidWriteIds() throws TException {
+    List<Long> tids = client.openTxns("me", 3).getTxn_ids();
+    client.allocateTableWriteIdsBatch(tids, "db", "tbl");
+    client.rollbackTxn(tids.get(0));
+
+    ValidTxnList validTxnList = client.getValidTxns();
+    String fullTableName = TxnUtils.getFullTableName("db", "tbl");
+
+    List<TableValidWriteIds> tableValidWriteIds = client.getValidWriteIds(
+        Collections.singletonList(fullTableName), validTxnList.writeToString());
+
+    Assert.assertEquals(tableValidWriteIds.size(), 1);
+    TableValidWriteIds writeIds = tableValidWriteIds.get(0);
+    Assert.assertNotNull(writeIds);
+
+    ValidReaderWriteIdList writeIdList = TxnCommonUtils.createValidReaderWriteIdList(writeIds);
+    Assert.assertNotNull(writeIdList);
+
+    Assert.assertEquals(writeIdList.getInvalidWriteIds().length, 1);
+    Assert.assertTrue(validTxnList.isTxnAborted(tids.get(0)));
+    Assert.assertEquals(writeIdList.getHighWatermark(), 1);
+    Assert.assertEquals(writeIdList.getMinOpenWriteId().longValue(), 2);
+
+    client.commitTxn(tids.get(2));
+    validTxnList = client.getValidTxns();
+
+    tableValidWriteIds = client.getValidWriteIds(
+      Collections.singletonList(fullTableName), validTxnList.writeToString());
+
+    Assert.assertEquals(tableValidWriteIds.size(), 1);
+    writeIds = tableValidWriteIds.get(0);
+    Assert.assertNotNull(writeIds);
+
+    writeIdList = TxnCommonUtils.createValidReaderWriteIdList(writeIds);
+    Assert.assertNotNull(writeIdList);
+
+    Assert.assertEquals(writeIdList.getInvalidWriteIds().length, 2);
+    Assert.assertTrue(validTxnList.isTxnAborted(tids.get(0)));
+    Assert.assertFalse(validTxnList.isTxnValid(tids.get(1)));
+    Assert.assertEquals(writeIdList.getHighWatermark(), 3);
+    Assert.assertEquals(writeIdList.getMinOpenWriteId().longValue(), 2);
+  }
+
+  @BeforeClass
+  public static void setUpDB() throws Exception {
     conf.setBoolean(ConfVars.HIVE_IN_TEST.getVarname(), true);
     MetaStoreTestUtils.setConfForStandloneMode(conf);
     TxnDbUtil.setConfValues(conf);
     TxnDbUtil.prepDb(conf);
     client = new HiveMetaStoreClient(conf);
+  }
+
+  @Before
+  public void setUp() throws Exception {
+
     String connectionStr = MetastoreConf.getVar(conf, MetastoreConf.ConfVars.CONNECT_URL_KEY);
 
     conn = DriverManager.getConnection(connectionStr);

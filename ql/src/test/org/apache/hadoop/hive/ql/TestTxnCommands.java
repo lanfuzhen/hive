@@ -18,13 +18,16 @@
 package org.apache.hadoop.hive.ql;
 
 import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.charset.Charset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.CountDownLatch;
@@ -34,6 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 
+import org.apache.hadoop.fs.FSDataInputStream;
 import org.apache.hadoop.fs.FileStatus;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
@@ -63,6 +67,8 @@ import org.apache.hadoop.hive.metastore.txn.TxnUtils;
 import org.apache.hadoop.hive.ql.io.AcidOutputFormat;
 import org.apache.hadoop.hive.ql.io.AcidUtils;
 import org.apache.hadoop.hive.ql.io.BucketCodec;
+import org.apache.hadoop.hive.ql.io.orc.OrcFile;
+import org.apache.hadoop.hive.ql.io.orc.Reader;
 import org.apache.hadoop.hive.ql.lockmgr.TestDbTxnManager2;
 import org.apache.hadoop.hive.ql.metadata.Hive;
 import org.apache.hadoop.hive.ql.metadata.HiveException;
@@ -271,8 +277,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
       } catch (HiveException e) {
         throw new RuntimeException(e);
       }
-      QueryState qs = new QueryState.Builder().withHiveConf(hiveConf).nonIsolated().build();
-      try (Driver d = new Driver(qs, null)) {
+      try (IDriver d = DriverFactory.newDriver(hiveConf)) {
         LOG.info("Ready to run the query: " + query);
         syncThreadStart(cdlIn, cdlOut);
         try {
@@ -422,7 +427,12 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     stats = getTxnTableStats(msClient, tableName);
     boolean hasStats = 0 != stats.size();
     if (hasStats) {
-      verifyLongStats(0, 0, 0, stats);
+      // Either the truncate run before or the analyze
+      if (stats.get(0).getStatsData().getLongStats().getNumDVs() > 0) {
+        verifyLongStats(1, 0, 0, stats);
+      } else {
+        verifyLongStats(0, 0, 0, stats);
+      }
     }
 
     // Stats should be valid after analyze.
@@ -533,7 +543,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     CommandProcessorException e2 = runStatementOnDriverNegative("update " + Table.ACIDTBL + " set a = 1 where b != 1");
     Assert.assertEquals("Expected update of bucket column to fail",
         "FAILED: SemanticException [Error 10302]: Updating values of bucketing columns is not supported.  Column a.",
-        e2.getErrorMessage());
+        e2.getMessage());
     Assert.assertEquals("Expected update of bucket column to fail",
         ErrorMsg.UPDATE_CANNOT_UPDATE_BUCKET_VALUE.getErrorCode(), e2.getErrorCode());
     CommandProcessorException e3 = runStatementOnDriverNegative("commit"); //not allowed in w/o tx
@@ -579,7 +589,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     CommandProcessorException e = runStatementOnDriverNegative("select * from no_such_table");
     Assert.assertEquals("Txn didn't fail?",
         "FAILED: SemanticException [Error 10001]: Line 1:14 Table not found 'no_such_table'",
-        e.getErrorMessage());
+        e.getMessage());
     runStatementOnDriver("start transaction");
     List<String> rs1 = runStatementOnDriver("select a,b from " + Table.ACIDTBL + " order by a,b");
     runStatementOnDriver("commit");
@@ -732,8 +742,8 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     houseKeeperService.run();
     //this should fail because txn aborted due to timeout
     CommandProcessorException e = runStatementOnDriverNegative("delete from " + Table.ACIDTBL + " where a = 5");
-    Assert.assertTrue("Actual: " + e.getErrorMessage(),
-        e.getErrorMessage().contains("Transaction manager has aborted the transaction txnid:1"));
+    Assert.assertTrue("Actual: " + e.getMessage(),
+        e.getMessage().contains("Transaction manager has aborted the transaction txnid:1"));
 
     //now test that we don't timeout locks we should not
     //heartbeater should be running in the background every 1/2 second
@@ -819,7 +829,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
         "WHEN MATCHED THEN UPDATE set b = 1\n" +
         "WHEN MATCHED THEN DELETE\n" +
         "WHEN NOT MATCHED AND a < 1 THEN INSERT VALUES(1,2)");
-    Assert.assertEquals(ErrorMsg.MERGE_PREDIACTE_REQUIRED, ((HiveException)e.getException()).getCanonicalErrorMsg());
+    Assert.assertEquals(ErrorMsg.MERGE_PREDIACTE_REQUIRED, ((HiveException)e.getCause()).getCanonicalErrorMsg());
   }
   @Test
   public void testMergeNegative2() throws Exception {
@@ -828,7 +838,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
         " target USING " + Table.NONACIDORCTBL + "\n source ON target.pk = source.pk " +
         "\nWHEN MATCHED THEN UPDATE set b = 1 " +
         "\nWHEN MATCHED THEN UPDATE set b=a");
-    Assert.assertEquals(ErrorMsg.MERGE_TOO_MANY_UPDATE, ((HiveException)e.getException()).getCanonicalErrorMsg());
+    Assert.assertEquals(ErrorMsg.MERGE_TOO_MANY_UPDATE, ((HiveException)e.getCause()).getCanonicalErrorMsg());
   }
 
   /**
@@ -1097,11 +1107,11 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
         " source ON target.a = source.a\n" +
         "WHEN MATCHED THEN UPDATE set t = 1");
     Assert.assertEquals(ErrorMsg.INVALID_TARGET_COLUMN_IN_SET_CLAUSE,
-        ((HiveException)e1.getException()).getCanonicalErrorMsg());
+        ((HiveException)e1.getCause()).getCanonicalErrorMsg());
 
     CommandProcessorException e2 = runStatementOnDriverNegative("update " + Table.ACIDTBL + " set t = 1");
     Assert.assertEquals(ErrorMsg.INVALID_TARGET_COLUMN_IN_SET_CLAUSE,
-        ((HiveException)e2.getException()).getCanonicalErrorMsg());
+        ((HiveException)e2.getCause()).getCanonicalErrorMsg());
   }
 
   @Test
@@ -1112,7 +1122,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
             "using (select *\n" +
             "       from " + Table.NONACIDORCTBL + " src) sub on sub.a = target.a\n" +
             "when not matched then insert values (sub.a,sub.b)");
-    Assert.assertTrue("Error didn't match: " + e, e.getErrorMessage().contains(
+    Assert.assertTrue("Error didn't match: " + e, e.getMessage().contains(
         "No columns from target table 'trgt' found in ON clause '`sub`.`a` = `target`.`a`' of MERGE statement."));
   }
 
@@ -1167,7 +1177,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
       {"{\"writeid\":0,\"bucketid\":536936448,\"rowid\":0}\t1\t2", "nonacidorctbl/000001_0"},
       {"{\"writeid\":0,\"bucketid\":536936448,\"rowid\":1}\t0\t12", "nonacidorctbl/000001_0_copy_1"},
       {"{\"writeid\":0,\"bucketid\":536936448,\"rowid\":2}\t1\t5", "nonacidorctbl/000001_0_copy_1"},
-      {"{\"writeid\":10000001,\"bucketid\":536936448,\"rowid\":0}\t1\t17", "nonacidorctbl/delta_10000001_10000001_0000/bucket_00001"}
+      {"{\"writeid\":10000001,\"bucketid\":536936448,\"rowid\":0}\t1\t17", "nonacidorctbl/delta_10000001_10000001_0000/bucket_00001_0"}
     };
     checkResult(expected, query, isVectorized, "before compact", LOG);
 
@@ -1253,7 +1263,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     FileSystem fs = FileSystem.get(hiveConf);
     Assert.assertTrue(rs != null && rs.size() == 1 && rs.get(0).contains(AcidUtils.DELTA_PREFIX));
     Path  filePath = new Path(rs.get(0));
-    int version = AcidUtils.OrcAcidVersion.getAcidVersionFromDataFile(filePath, fs);
+    int version = getAcidVersionFromDataFile(filePath, fs);
     //check it has expected version marker
     Assert.assertEquals("Unexpected version marker in " + filePath,
         AcidUtils.OrcAcidVersion.ORC_ACID_VERSION, version);
@@ -1261,8 +1271,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     //check that delta dir has a version file with expected value
     filePath = filePath.getParent();
     Assert.assertTrue(filePath.getName().startsWith(AcidUtils.DELTA_PREFIX));
-    int versionFromMetaFile = AcidUtils.OrcAcidVersion
-                                  .getAcidVersionFromMetaFile(filePath, fs);
+    int versionFromMetaFile = getAcidVersionFromMetaFile(filePath, fs);
     Assert.assertEquals("Unexpected version marker in " + filePath,
         AcidUtils.OrcAcidVersion.ORC_ACID_VERSION, versionFromMetaFile);
 
@@ -1282,7 +1291,7 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     Assert.assertTrue(rs != null && rs.size() == 1 && rs.get(0).contains(AcidUtils.BASE_PREFIX));
 
     filePath = new Path(rs.get(0));
-    version = AcidUtils.OrcAcidVersion.getAcidVersionFromDataFile(filePath, fs);
+    version = getAcidVersionFromDataFile(filePath, fs);
     //check that files produced by compaction still have the version marker
     Assert.assertEquals("Unexpected version marker in " + filePath,
         AcidUtils.OrcAcidVersion.ORC_ACID_VERSION, version);
@@ -1290,9 +1299,63 @@ public class TestTxnCommands extends TxnCommandsBaseForTests {
     //check that compacted base dir has a version file with expected value
     filePath = filePath.getParent();
     Assert.assertTrue(filePath.getName().startsWith(AcidUtils.BASE_PREFIX));
-    versionFromMetaFile = AcidUtils.OrcAcidVersion.getAcidVersionFromMetaFile(
-        filePath, fs);
+    versionFromMetaFile = getAcidVersionFromMetaFile(filePath, fs);
     Assert.assertEquals("Unexpected version marker in " + filePath,
         AcidUtils.OrcAcidVersion.ORC_ACID_VERSION, versionFromMetaFile);
+
+    hiveConf.setBoolVar(HiveConf.ConfVars.HIVE_WRITE_ACID_VERSION_FILE, false);
+    runStatementOnDriver("insert into T" + makeValuesClause(data));
+    //delete the bucket files so now we have empty delta dirs
+    rs = runStatementOnDriver("select distinct INPUT__FILE__NAME from T");
+    Optional<String> deltaDir = rs.stream().filter(p -> p.contains(AcidUtils.DELTA_PREFIX)).findAny();
+    Assert.assertTrue("Delta dir should be present", deltaDir.isPresent());
+    Assert.assertFalse("Version marker should not exists",
+        fs.exists(AcidUtils.OrcAcidVersion.getVersionFilePath(new Path(deltaDir.get()).getParent())));
+    hiveConf.setBoolVar(HiveConf.ConfVars.HIVE_WRITE_ACID_VERSION_FILE, true);
+  }
+
+  private static final Charset UTF8 = Charset.forName("UTF-8");
+  private static final int ORC_ACID_VERSION_DEFAULT = 0;
+  /**
+   * This is smart enough to handle streaming ingest where there could be a
+   * {@link AcidUtils#DELTA_SIDE_FILE_SUFFIX} side file.
+   * @param dataFile - ORC acid data file
+   * @return version property from file if there,
+   *          {@link #ORC_ACID_VERSION_DEFAULT} otherwise
+   */
+  private static int getAcidVersionFromDataFile(Path dataFile, FileSystem fs) throws IOException {
+    FileStatus fileStatus = fs.getFileStatus(dataFile);
+    Reader orcReader = OrcFile.createReader(dataFile,
+        OrcFile.readerOptions(fs.getConf())
+            .filesystem(fs)
+            //make sure to check for side file in case streaming ingest died
+            .maxLength(AcidUtils.getLogicalLength(fs, fileStatus)));
+    if (orcReader.hasMetadataValue(AcidUtils.OrcAcidVersion.ACID_VERSION_KEY)) {
+      char[] versionChar =
+          UTF8.decode(orcReader.getMetadataValue(AcidUtils.OrcAcidVersion.ACID_VERSION_KEY)).array();
+      String version = new String(versionChar);
+      return Integer.valueOf(version);
+    }
+    return ORC_ACID_VERSION_DEFAULT;
+  }
+
+  private static int getAcidVersionFromMetaFile(Path deltaOrBaseDir, FileSystem fs)
+      throws IOException {
+    Path formatFile = AcidUtils.OrcAcidVersion.getVersionFilePath(deltaOrBaseDir);
+    try (FSDataInputStream inputStream = fs.open(formatFile)) {
+      byte[] bytes = new byte[1];
+      int read = inputStream.read(bytes);
+      if (read != -1) {
+        String version = new String(bytes, UTF8);
+        return Integer.valueOf(version);
+      }
+      return ORC_ACID_VERSION_DEFAULT;
+    } catch (FileNotFoundException fnf) {
+      LOG.debug(formatFile + " not found, returning default: " + ORC_ACID_VERSION_DEFAULT);
+      return ORC_ACID_VERSION_DEFAULT;
+    } catch(IOException ex) {
+      LOG.error(formatFile + " is unreadable due to: " + ex.getMessage(), ex);
+      throw ex;
+    }
   }
 }

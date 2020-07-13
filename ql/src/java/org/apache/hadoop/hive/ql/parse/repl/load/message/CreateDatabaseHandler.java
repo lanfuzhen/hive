@@ -18,7 +18,7 @@
  */
 package org.apache.hadoop.hive.ql.parse.repl.load.message;
 
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.hadoop.hive.metastore.api.Database;
@@ -58,7 +58,7 @@ public class CreateDatabaseHandler extends AbstractMessageHandler {
         context.dbName == null ? db.getName() : context.dbName;
 
     CreateDatabaseDesc createDatabaseDesc =
-        new CreateDatabaseDesc(destinationDBName, db.getDescription(), null, true, db.getParameters());
+        new CreateDatabaseDesc(destinationDBName, db.getDescription(), null, null, true, db.getParameters());
     Task<DDLWork> createDBTask = TaskFactory.get(
         new DDLWork(new HashSet<>(), new HashSet<>(), createDatabaseDesc), context.hiveConf);
     if (!db.getParameters().isEmpty()) {

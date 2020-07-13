@@ -50,7 +50,7 @@ Table Parameters:
 	numFiles            	1                   
 	numRows             	5                   
 	rawDataSize         	1025                
-	totalSize           	509                 
+	totalSize           	511                 
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -112,7 +112,7 @@ Table Parameters:
 	numFiles            	1                   
 	numRows             	5                   
 	rawDataSize         	580                 
-	totalSize           	354                 
+	totalSize           	356                 
 #### A masked pattern was here ####
 	 	 
 # Storage Information	 	 
@@ -182,9 +182,9 @@ POSTHOOK: query: select * from cmv_mat_view4
 POSTHOOK: type: QUERY
 POSTHOOK: Input: default@cmv_mat_view4
 #### A masked pattern was here ####
+3	988.56
 1	10.30
 2	172345.34
-3	988.56
 PREHOOK: query: describe extended cmv_mat_view4
 PREHOOK: type: DESCTABLE
 PREHOOK: Input: default@cmv_mat_view4
@@ -250,7 +250,7 @@ numFiles	1
 numFilesErasureCoded	0
 numRows	5
 rawDataSize	1605
-totalSize	725
+totalSize	727
 #### A masked pattern was here ####
 PREHOOK: query: drop materialized view cmv_mat_view_n4
 PREHOOK: type: DROP_MATERIALIZED_VIEW
@@ -306,6 +306,7 @@ POSTHOOK: query: create materialized view acid_cmv_part disable rewrite partitio
 POSTHOOK: type: CREATE_MATERIALIZED_VIEW
 POSTHOOK: Input: default@src
 POSTHOOK: Output: database:default
+POSTHOOK: Output: default@acid_cmv_part
 POSTHOOK: Output: default@acid_cmv_part
 POSTHOOK: Output: default@acid_cmv_part@k=0
 POSTHOOK: Output: default@acid_cmv_part@k=10

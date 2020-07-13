@@ -26,7 +26,7 @@ import java.util.concurrent.Future;
 
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.apache.commons.lang3.tuple.Pair;
-import org.apache.commons.lang.ArrayUtils;
+import org.apache.commons.lang3.ArrayUtils;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.hive.conf.Constants;
 import org.apache.hadoop.hive.conf.HiveConf;
@@ -582,6 +582,7 @@ public class MapJoinOperator extends AbstractMapJoinOperator<MapJoinDesc> implem
       }
       if (joinNeeded) {
         List<Object> value = getFilteredValue(alias, row);
+        addToAliasFilterTags(alias, value, false);
         // Add the value to the ArrayList
         storage[alias].addRow(value);
         // generate the output records

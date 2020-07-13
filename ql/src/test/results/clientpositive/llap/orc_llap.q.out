@@ -520,7 +520,7 @@ STAGE PLANS:
                       Statistics: Num rows: 122880 Data size: 18412870 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: string), _col1 (type: string)
-                        null sort order: aa
+                        null sort order: zz
                         sort order: ++
                         Map-reduce partition columns: _col0 (type: string), _col1 (type: string)
                         Statistics: Num rows: 122880 Data size: 18412870 Basic stats: COMPLETE Column stats: COMPLETE
@@ -620,7 +620,7 @@ STAGE PLANS:
                       Statistics: Num rows: 68484 Data size: 5010740 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: smallint)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: smallint)
                         Statistics: Num rows: 68484 Data size: 5010740 Basic stats: COMPLETE Column stats: COMPLETE
@@ -649,11 +649,11 @@ STAGE PLANS:
                         outputColumnNames: _col1, _col3
                         input vertices:
                           0 Map 1
-                        Statistics: Num rows: 285509 Data size: 50948874 Basic stats: COMPLETE Column stats: COMPLETE
+                        Statistics: Num rows: 159130 Data size: 26936864 Basic stats: COMPLETE Column stats: COMPLETE
                         Select Operator
                           expressions: hash(_col1,_col3) (type: int)
                           outputColumnNames: _col0
-                          Statistics: Num rows: 285509 Data size: 50948874 Basic stats: COMPLETE Column stats: COMPLETE
+                          Statistics: Num rows: 159130 Data size: 26936864 Basic stats: COMPLETE Column stats: COMPLETE
                           Group By Operator
                             aggregations: sum(_col0)
                             minReductionHashAggr: 0.99
@@ -1011,7 +1011,7 @@ STAGE PLANS:
                       Statistics: Num rows: 245760 Data size: 36825550 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: string), _col1 (type: string)
-                        null sort order: aa
+                        null sort order: zz
                         sort order: ++
                         Map-reduce partition columns: _col0 (type: string), _col1 (type: string)
                         Statistics: Num rows: 245760 Data size: 36825550 Basic stats: COMPLETE Column stats: COMPLETE
@@ -1111,7 +1111,7 @@ STAGE PLANS:
                       Statistics: Num rows: 136968 Data size: 10021382 Basic stats: COMPLETE Column stats: COMPLETE
                       Reduce Output Operator
                         key expressions: _col0 (type: smallint)
-                        null sort order: a
+                        null sort order: z
                         sort order: +
                         Map-reduce partition columns: _col0 (type: smallint)
                         Statistics: Num rows: 136968 Data size: 10021382 Basic stats: COMPLETE Column stats: COMPLETE
@@ -1140,11 +1140,11 @@ STAGE PLANS:
                         outputColumnNames: _col1, _col3
                         input vertices:
                           0 Map 1
-                        Statistics: Num rows: 1142036 Data size: 210391074 Basic stats: COMPLETE Column stats: COMPLETE
+                        Statistics: Num rows: 636522 Data size: 114343414 Basic stats: COMPLETE Column stats: COMPLETE
                         Select Operator
                           expressions: hash(_col1,_col3) (type: int)
                           outputColumnNames: _col0
-                          Statistics: Num rows: 1142036 Data size: 210391074 Basic stats: COMPLETE Column stats: COMPLETE
+                          Statistics: Num rows: 636522 Data size: 114343414 Basic stats: COMPLETE Column stats: COMPLETE
                           Group By Operator
                             aggregations: sum(_col0)
                             minReductionHashAggr: 0.99

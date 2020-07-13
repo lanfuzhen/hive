@@ -22,7 +22,7 @@ import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.Lists;
 
 import com.google.common.collect.Multimap;
-import org.apache.commons.lang.StringUtils;
+import org.apache.commons.lang3.StringUtils;
 import org.apache.hadoop.hive.common.repl.ReplConst;
 import org.apache.hadoop.hive.common.TableName;
 import org.apache.hadoop.hive.metastore.conf.MetastoreConf;
@@ -239,8 +239,8 @@ public class HiveAlterHandler implements AlterHandler {
           // in the table rename, its data location should not be changed. We can check
           // if the table directory was created directly under its database directory to tell
           // if it is such a table
-          String oldtRelativePath = (new Path(olddb.getLocationUri()).toUri())
-                  .relativize(srcPath.toUri()).toString();
+          String oldtRelativePath = wh.getDatabasePath(olddb).toUri()
+              .relativize(srcPath.toUri()).toString();
           boolean tableInSpecifiedLoc = !oldtRelativePath.equalsIgnoreCase(name)
                   && !oldtRelativePath.equalsIgnoreCase(name + Path.SEPARATOR);
           if (!tableInSpecifiedLoc) {
@@ -272,7 +272,7 @@ public class HiveAlterHandler implements AlterHandler {
               }
               // check that src exists and also checks permissions necessary, rename src to dest
               if (srcFs.exists(srcPath) && wh.renameDir(srcPath, destPath,
-                      ReplChangeManager.isSourceOfReplication(olddb))) {
+                      ReplChangeManager.shouldEnableCm(olddb, oldt))) {
                 dataWasMoved = true;
               }
             } catch (IOException | MetaException e) {
@@ -426,9 +426,10 @@ public class HiveAlterHandler implements AlterHandler {
           assert(olddb != null);
           assert(oldt != null);
           Path deleteOldDataLoc = new Path(oldt.getSd().getLocation());
-          boolean isAutoPurge = "true".equalsIgnoreCase(oldt.getParameters().get("auto.purge"));
+          boolean isSkipTrash = MetaStoreUtils.isSkipTrash(oldt.getParameters());
           try {
-            wh.deleteDir(deleteOldDataLoc, true, isAutoPurge, olddb);
+            wh.deleteDir(deleteOldDataLoc, true, isSkipTrash,
+                    ReplChangeManager.shouldEnableCm(olddb, oldt));
             LOG.info("Deleted the old data location: {} for the table: {}",
                     deleteOldDataLoc, dbname + "." + name);
           } catch (MetaException ex) {
@@ -651,7 +652,7 @@ public class HiveAlterHandler implements AlterHandler {
               }
 
               //rename the data directory
-              wh.renameDir(srcPath, destPath, ReplChangeManager.isSourceOfReplication(db));
+              wh.renameDir(srcPath, destPath, ReplChangeManager.shouldEnableCm(db, tbl));
               LOG.info("Partition directory rename from " + srcPath + " to " + destPath + " done.");
               dataWasMoved = true;
             }
@@ -1160,7 +1161,7 @@ public class HiveAlterHandler implements AlterHandler {
       throw new InvalidOperationException(
           "The following columns have types incompatible with the existing " +
               "columns in their respective positions :\n" +
-              org.apache.commons.lang.StringUtils.join(incompatibleCols, ',')
+              org.apache.commons.lang3.StringUtils.join(incompatibleCols, ',')
       );
     }
   }

@@ -18,6 +18,8 @@
 
 package org.apache.hadoop.hive.ql;
 
+import java.io.DataInput;
+
 import org.apache.hadoop.hive.common.ValidWriteIdList;
 import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.metastore.api.Schema;
@@ -38,7 +40,6 @@ public class DriverContext {
   private final QueryState queryState;
   private final QueryInfo queryInfo;
   private final HiveConf conf;
-  private final String userName;
   private final HookRunner hookRunner;
 
   // Transaction manager the Driver has been initialized with (can be null).
@@ -69,21 +70,32 @@ public class DriverContext {
   private ValidWriteIdList compactionWriteIds = null;
   private long compactorTxnId = 0;
 
-  private Context backupContext = null;
   private boolean retrial = false;
 
-  public DriverContext(QueryState queryState, QueryInfo queryInfo, String userName, HookRunner hookRunner,
+  private DataInput resStream;
+
+  // HS2 operation handle guid string
+  private String operationId;
+
+  public DriverContext(QueryState queryState, QueryInfo queryInfo, HookRunner hookRunner,
       HiveTxnManager initTxnManager) {
     this.queryState = queryState;
     this.queryInfo = queryInfo;
     this.conf = queryState.getConf();
-    this.userName = userName;
     this.hookRunner = hookRunner;
     this.initTxnManager = initTxnManager;
   }
 
   public QueryDisplay getQueryDisplay() {
     return queryDisplay;
+  }
+
+  public String getQueryId() {
+    return queryDisplay.getQueryId();
+  }
+
+  public String getQueryString() {
+    return queryDisplay.getQueryString();
   }
 
   public QueryState getQueryState() {
@@ -96,10 +108,6 @@ public class DriverContext {
 
   public HiveConf getConf() {
     return conf;
-  }
-
-  public String getUserName() {
-    return userName;
   }
 
   public HookRunner getHookRunner() {
@@ -198,19 +206,27 @@ public class DriverContext {
     this.compactorTxnId = compactorTxnId;
   }
 
-  public Context getBackupContext() {
-    return backupContext;
-  }
-
-  public void setBackupContext(Context backupContext) {
-    this.backupContext = backupContext;
-  }
-
   public boolean isRetrial() {
     return retrial;
   }
 
   public void setRetrial(boolean retrial) {
     this.retrial = retrial;
+  }
+
+  public DataInput getResStream() {
+    return resStream;
+  }
+
+  public void setResStream(DataInput resStream) {
+    this.resStream = resStream;
+  }
+
+  public String getOperationId() {
+    return operationId;
+  }
+
+  public void setOperationId(String operationId) {
+    this.operationId = operationId;
   }
 }

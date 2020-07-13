@@ -17,16 +17,15 @@
  */
 package org.apache.hadoop.hive.ql.schq;
 
-import static org.junit.Assert.assertEquals;
+import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
-
 import org.apache.hadoop.hive.conf.HiveConf;
+import org.apache.hadoop.hive.metastore.api.QueryState;
 import org.apache.hadoop.hive.metastore.api.ScheduledQueryKey;
 import org.apache.hadoop.hive.metastore.api.ScheduledQueryPollResponse;
 import org.apache.hadoop.hive.metastore.api.ScheduledQueryProgressInfo;
@@ -91,7 +90,7 @@ public class TestScheduledQueryService {
   private int getNumRowsReturned(IDriver driver, String query) throws Exception {
     driver.run(query);
     FetchTask ft = driver.getFetchTask();
-    List res = new ArrayList();
+    List<?> res = new ArrayList<>();
     if (ft == null) {
       return 0;
     }
@@ -99,21 +98,26 @@ public class TestScheduledQueryService {
     return res.size();
   }
 
+
   public static class MockScheduledQueryService implements IScheduledQueryMaintenanceService {
+    // Use notify/wait on this object to indicate when the scheduled query has finished executing.
+    Object notifier = new Object();
+
     int id = 0;
     private String stmt;
+    ScheduledQueryProgressInfo lastProgressInfo;
 
     public MockScheduledQueryService(String string) {
       stmt = string;
     }
-    
+
     @Override
     public ScheduledQueryPollResponse scheduledQueryPoll() {
-
       ScheduledQueryPollResponse r = new ScheduledQueryPollResponse();
       r.setExecutionId(id++);
       r.setQuery(stmt);
       r.setScheduleKey(new ScheduledQueryKey("sch1", getClusterNamespace()));
+      r.setUser("nobody");
       if (id == 1) {
         return r;
       } else {
@@ -125,6 +129,13 @@ public class TestScheduledQueryService {
     public void scheduledQueryProgress(ScheduledQueryProgressInfo info) {
       System.out.printf("%d, state: %s, error: %s", info.getScheduledExecutionId(), info.getState(),
           info.getErrorMessage());
+      lastProgressInfo = info;
+      if (info.getState() == QueryState.FINISHED || info.getState() == QueryState.FAILED) {
+        // Query is done, notify any waiters
+        synchronized (notifier) {
+          notifier.notifyAll();
+        }
+      }
     }
 
     @Override
@@ -142,12 +153,18 @@ public class TestScheduledQueryService {
     HiveConf conf = env_setup.getTestCtx().hiveConf;
     MockScheduledQueryService qService = new MockScheduledQueryService("insert into tu values(1),(2),(3),(4),(5)");
     ScheduledQueryExecutionContext ctx = new ScheduledQueryExecutionContext(executor, conf, qService);
-    ScheduledQueryExecutionService sQ = new ScheduledQueryExecutionService(ctx);
+    try (ScheduledQueryExecutionService sQ = ScheduledQueryExecutionService.startScheduledQueryExecutorService(ctx)) {
+      // Wait for the scheduled query to finish. Hopefully 30 seconds should be more than enough.
+      SessionState.getConsole().logInfo("Waiting for query execution to finish ...");
+      synchronized (qService.notifier) {
+        qService.notifier.wait(30000);
+      }
+      SessionState.getConsole().logInfo("Done waiting for query execution!");
+    }
 
-    Thread.sleep(5000);
-    executor.shutdown();
-    executor.awaitTermination(2, TimeUnit.SECONDS);
-
+    assertThat(qService.lastProgressInfo.isSetExecutorQueryId(), is(true));
+    assertThat(qService.lastProgressInfo.getExecutorQueryId(),
+        Matchers.containsString(ctx.executorHostName + "/"));
     int nr = getNumRowsReturned(driver, "select 1 from tu");
     assertThat(nr, Matchers.equalTo(5));
 

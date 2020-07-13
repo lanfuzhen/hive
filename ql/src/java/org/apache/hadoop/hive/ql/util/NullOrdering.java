@@ -17,6 +17,8 @@
  */
 package org.apache.hadoop.hive.ql.util;
 
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.hive.conf.HiveConf;
 import org.apache.hadoop.hive.ql.parse.HiveParser;
 import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.NullValueOption;
 
@@ -24,8 +26,8 @@ import org.apache.hadoop.hive.serde2.objectinspector.ObjectInspectorUtils.NullVa
  * Enum for converting different Null ordering description types.
  */
 public enum NullOrdering {
-  NULLS_FIRST(1, HiveParser.TOK_NULLS_FIRST, NullValueOption.MAXVALUE, 'a'),
-  NULLS_LAST(0, HiveParser.TOK_NULLS_LAST, NullValueOption.MINVALUE, 'z');
+  NULLS_FIRST(1, HiveParser.TOK_NULLS_FIRST, NullValueOption.MINVALUE, 'a'),
+  NULLS_LAST(0, HiveParser.TOK_NULLS_LAST, NullValueOption.MAXVALUE, 'z');
 
   NullOrdering(int code, int token, NullValueOption nullValueOption, char sign) {
     this.code = code;
@@ -64,6 +66,11 @@ public enum NullOrdering {
       }
     }
     throw new EnumConstantNotPresentException(NullOrdering.class, "No enum constant present with sign " + sign);
+  }
+
+  public static NullOrdering defaultNullOrder(Configuration hiveConf) {
+    return HiveConf.getBoolVar(hiveConf, HiveConf.ConfVars.HIVE_DEFAULT_NULLS_LAST) ?
+            NullOrdering.NULLS_LAST : NullOrdering.NULLS_FIRST;
   }
 
   public int getCode() {

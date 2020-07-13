@@ -17,7 +17,6 @@
  */
 package org.apache.hadoop.hive.ql.parse.spark;
 
-import java.io.Serializable;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -50,14 +49,14 @@ import org.apache.hadoop.hive.ql.hooks.WriteEntity;
 import org.apache.hadoop.hive.ql.lib.CompositeProcessor;
 import org.apache.hadoop.hive.ql.lib.DefaultGraphWalker;
 import org.apache.hadoop.hive.ql.lib.DefaultRuleDispatcher;
-import org.apache.hadoop.hive.ql.lib.Dispatcher;
+import org.apache.hadoop.hive.ql.lib.SemanticDispatcher;
 import org.apache.hadoop.hive.ql.lib.ForwardWalker;
-import org.apache.hadoop.hive.ql.lib.GraphWalker;
+import org.apache.hadoop.hive.ql.lib.SemanticGraphWalker;
 import org.apache.hadoop.hive.ql.lib.Node;
-import org.apache.hadoop.hive.ql.lib.NodeProcessor;
+import org.apache.hadoop.hive.ql.lib.SemanticNodeProcessor;
 import org.apache.hadoop.hive.ql.lib.NodeProcessorCtx;
 import org.apache.hadoop.hive.ql.lib.PreOrderWalker;
-import org.apache.hadoop.hive.ql.lib.Rule;
+import org.apache.hadoop.hive.ql.lib.SemanticRule;
 import org.apache.hadoop.hive.ql.lib.RuleRegExp;
 import org.apache.hadoop.hive.ql.lib.TypeRule;
 import org.apache.hadoop.hive.ql.log.PerfLogger;
@@ -146,23 +145,12 @@ public class SparkCompiler extends TaskCompiler {
       new ConstantPropagate(ConstantPropagateProcCtx.ConstantPropagateOption.SHORTCUT).transform(pCtx);
     }
 
-    // ATTENTION : DO NOT, I REPEAT, DO NOT WRITE ANYTHING AFTER updateBucketingVersionForUpgrade()
-    // ANYTHING WHICH NEEDS TO BE ADDED MUST BE ADDED ABOVE
-    // This call updates the bucketing version of final ReduceSinkOp based on
-    // the bucketing version of FileSinkOp. This operation must happen at the
-    // end to ensure there is no further rewrite of plan which may end up
-    // removing/updating the ReduceSinkOp as was the case with SortedDynPartitionOptimizer
-    // Update bucketing version of ReduceSinkOp if needed
-    // Note: This has been copied here from TezCompiler, change seems needed for bucketing to work
-    // properly moving forward.
-    updateBucketingVersionForUpgrade(procCtx);
-
     PERF_LOGGER.PerfLogEnd(CLASS_NAME, PerfLogger.SPARK_OPTIMIZE_OPERATOR_TREE);
   }
 
   private void runRemoveDynamicPruning(OptimizeSparkProcContext procCtx) throws SemanticException {
     ParseContext pCtx = procCtx.getParseContext();
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
 
     opRules.put(new RuleRegExp("Disabling Dynamic Partition Pruning",
         SparkPartitionPruningSinkOperator.getOperatorName() + "%"),
@@ -170,8 +158,8 @@ public class SparkCompiler extends TaskCompiler {
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new DefaultGraphWalker(disp);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new DefaultGraphWalker(disp);
 
     // Create a list of topop nodes
     ArrayList<Node> topNodes = new ArrayList<Node>();
@@ -297,7 +285,7 @@ public class SparkCompiler extends TaskCompiler {
     }
 
     ParseContext parseContext = procCtx.getParseContext();
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
     opRules.put(
         new RuleRegExp(new String("Dynamic Partition Pruning"),
             FilterOperator.getOperatorName() + "%"),
@@ -305,8 +293,8 @@ public class SparkCompiler extends TaskCompiler {
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new ForwardWalker(disp);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new ForwardWalker(disp);
 
     List<Node> topNodes = new ArrayList<Node>();
     topNodes.addAll(parseContext.getTopOps().values());
@@ -315,15 +303,15 @@ public class SparkCompiler extends TaskCompiler {
 
   private void runSetReducerParallelism(OptimizeSparkProcContext procCtx) throws SemanticException {
     ParseContext pCtx = procCtx.getParseContext();
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
     opRules.put(new RuleRegExp("Set parallelism - ReduceSink",
             ReduceSinkOperator.getOperatorName() + "%"),
         new SetSparkReducerParallelism(pCtx.getConf()));
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new PreOrderWalker(disp);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new PreOrderWalker(disp);
 
     // Create a list of topop nodes
     ArrayList<Node> topNodes = new ArrayList<Node>();
@@ -333,7 +321,7 @@ public class SparkCompiler extends TaskCompiler {
 
   private void runJoinOptimizations(OptimizeSparkProcContext procCtx) throws SemanticException {
     ParseContext pCtx = procCtx.getParseContext();
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
 
     opRules.put(new TypeRule(JoinOperator.class), new SparkJoinOptimizer(pCtx));
 
@@ -341,8 +329,8 @@ public class SparkCompiler extends TaskCompiler {
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new DefaultGraphWalker(disp);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new DefaultGraphWalker(disp);
 
     // Create a list of topop nodes
     ArrayList<Node> topNodes = new ArrayList<Node>();
@@ -376,13 +364,13 @@ public class SparkCompiler extends TaskCompiler {
     // -------------------------------- First Pass ---------------------------------- //
     // Identify SparkPartitionPruningSinkOperators, and break OP tree if necessary
 
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
     opRules.put(new RuleRegExp("Clone OP tree for PartitionPruningSink",
             SparkPartitionPruningSinkOperator.getOperatorName() + "%"),
         new SplitOpTreeForDPP());
 
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new GenSparkWorkWalker(disp, procCtx);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new GenSparkWorkWalker(disp, procCtx);
 
     List<Node> topNodes = new ArrayList<Node>();
     topNodes.addAll(pCtx.getTopOps().values());
@@ -440,7 +428,7 @@ public class SparkCompiler extends TaskCompiler {
     throws SemanticException {
     // create a walker which walks the tree in a DFS manner while maintaining
     // the operator stack. The dispatcher generates the plan from the operator tree
-    Map<Rule, NodeProcessor> opRules = new LinkedHashMap<Rule, NodeProcessor>();
+    Map<SemanticRule, SemanticNodeProcessor> opRules = new LinkedHashMap<SemanticRule, SemanticNodeProcessor>();
     GenSparkWork genSparkWork = new GenSparkWork(GenSparkUtils.getUtils());
 
     opRules.put(new RuleRegExp("Split Work - ReduceSink",
@@ -460,7 +448,7 @@ public class SparkCompiler extends TaskCompiler {
         new SparkProcessAnalyzeTable(GenSparkUtils.getUtils()));
 
     opRules.put(new RuleRegExp("Remember union", UnionOperator.getOperatorName() + "%"),
-        new NodeProcessor() {
+        new SemanticNodeProcessor() {
           @Override
           public Object process(Node n, Stack<Node> s,
                                 NodeProcessorCtx procCtx, Object... os) throws SemanticException {
@@ -489,7 +477,7 @@ public class SparkCompiler extends TaskCompiler {
      * the MapWork later on.
      */
     opRules.put(new TypeRule(SMBMapJoinOperator.class),
-      new NodeProcessor() {
+      new SemanticNodeProcessor() {
         @Override
         public Object process(Node currNode, Stack<Node> stack,
                               NodeProcessorCtx procCtx, Object... os) throws SemanticException {
@@ -517,8 +505,8 @@ public class SparkCompiler extends TaskCompiler {
 
     // The dispatcher fires the processor corresponding to the closest matching
     // rule and passes the context along
-    Dispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
-    GraphWalker ogw = new GenSparkWorkWalker(disp, procCtx);
+    SemanticDispatcher disp = new DefaultRuleDispatcher(null, opRules, procCtx);
+    SemanticGraphWalker ogw = new GenSparkWorkWalker(disp, procCtx);
     ogw.startWalking(topNodes, null);
   }
 
@@ -636,37 +624,5 @@ public class SparkCompiler extends TaskCompiler {
 
     PERF_LOGGER.PerfLogEnd(CLASS_NAME, PerfLogger.SPARK_OPTIMIZE_TASK_TREE);
     return;
-  }
-
-  private void updateBucketingVersionForUpgrade(OptimizeSparkProcContext procCtx) {
-    // Fetch all the FileSinkOperators.
-    Set<FileSinkOperator> fsOpsAll = new HashSet<>();
-    for (TableScanOperator ts : procCtx.getParseContext().getTopOps().values()) {
-      Set<FileSinkOperator> fsOps = OperatorUtils.findOperators(
-          ts, FileSinkOperator.class);
-      fsOpsAll.addAll(fsOps);
-    }
-
-
-    for (FileSinkOperator fsOp : fsOpsAll) {
-      if (!fsOp.getConf().getTableInfo().isSetBucketingVersion()) {
-        continue;
-      }
-      // Look for direct parent ReduceSinkOp
-      // If there are more than 1 parent, bail out.
-      Operator<?> parent = fsOp;
-      List<Operator<?>> parentOps = parent.getParentOperators();
-      while (parentOps != null && parentOps.size() == 1) {
-        parent = parentOps.get(0);
-        if (!(parent instanceof ReduceSinkOperator)) {
-          parentOps = parent.getParentOperators();
-          continue;
-        }
-
-        // Found the target RSOp
-        parent.setBucketingVersion(fsOp.getConf().getTableInfo().getBucketingVersion());
-        break;
-      }
-    }
   }
 }

@@ -18,15 +18,14 @@
 package org.apache.hadoop.hive.ql.exec.vector;
 
 import java.sql.Timestamp;
-import java.text.SimpleDateFormat;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.util.Arrays;
-import java.util.GregorianCalendar;
-import java.util.TimeZone;
 
+import org.apache.hadoop.hive.common.type.CalendarUtils;
 import org.apache.hadoop.io.Writable;
+import org.apache.hive.common.util.SuppressFBWarnings;
 
 /**
  * This class represents a nullable timestamp column vector capable of handing a wide range of
@@ -41,26 +40,6 @@ import org.apache.hadoop.io.Writable;
  * using the scratch timestamp, and then perhaps update the column vector row with a result.
  */
 public class TimestampColumnVector extends ColumnVector {
-  private static final TimeZone UTC = TimeZone.getTimeZone("UTC");
-  private static final GregorianCalendar PROLEPTIC_GREGORIAN_CALENDAR_UTC =
-      new GregorianCalendar(UTC);
-  private static final GregorianCalendar GREGORIAN_CALENDAR_UTC =
-      new GregorianCalendar(UTC);
-
-  private static final SimpleDateFormat PROLEPTIC_GREGORIAN_TIMESTAMP_FORMATTER_UTC =
-      new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-  private static final SimpleDateFormat GREGORIAN_TIMESTAMP_FORMATTER_UTC =
-      new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
-
-  static {
-    PROLEPTIC_GREGORIAN_CALENDAR_UTC.setGregorianChange(new java.util.Date(Long.MIN_VALUE));
-
-    PROLEPTIC_GREGORIAN_TIMESTAMP_FORMATTER_UTC.setCalendar(PROLEPTIC_GREGORIAN_CALENDAR_UTC);
-    GREGORIAN_TIMESTAMP_FORMATTER_UTC.setCalendar(GREGORIAN_CALENDAR_UTC);
-  }
-
-  // it's 1582-10-15 in both calendars
-  private static final int CUTOVER_MILLIS_EPOCH = -141427 * 24 * 60 * 60 * 1000;
 
   /*
    * The storage arrays for this column vector corresponds to the storage of a Timestamp:
@@ -154,6 +133,7 @@ public class TimestampColumnVector extends ColumnVector {
    * @param elementNum
    * @return
    */
+  @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Expose internal rep for efficiency")
   public Timestamp asScratchTimestamp(int elementNum) {
     scratchTimestamp.setTime(time[elementNum]);
     scratchTimestamp.setNanos(nanos[elementNum]);
@@ -164,6 +144,7 @@ public class TimestampColumnVector extends ColumnVector {
    * Return the scratch timestamp (contents undefined).
    * @return
    */
+  @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Expose internal rep for efficiency")
   public Timestamp getScratchTimestamp() {
     return scratchTimestamp;
   }
@@ -594,18 +575,14 @@ public class TimestampColumnVector extends ColumnVector {
 
   private void updateDataAccordingProlepticSetting() throws Exception {
     for (int i = 0; i < nanos.length; i++) {
-      if (time[i] >= CUTOVER_MILLIS_EPOCH) { // no need for conversion
+      if (time[i] >= CalendarUtils.SWITCHOVER_MILLIS) { // no need for conversion
         continue;
       }
       asScratchTimestamp(i);
       long offset = 0;
-      String formatted =
-          usingProlepticCalendar ? GREGORIAN_TIMESTAMP_FORMATTER_UTC.format(scratchTimestamp)
-            : PROLEPTIC_GREGORIAN_TIMESTAMP_FORMATTER_UTC.format(scratchTimestamp);
 
-      long millis = usingProlepticCalendar
-        ? PROLEPTIC_GREGORIAN_TIMESTAMP_FORMATTER_UTC.parse(formatted).getTime()
-        : GREGORIAN_TIMESTAMP_FORMATTER_UTC.parse(formatted).getTime();
+      long millis = usingProlepticCalendar ? CalendarUtils.convertTimeToProleptic(scratchTimestamp.getTime())
+          : CalendarUtils.convertTimeToHybrid(scratchTimestamp.getTime());
 
       Timestamp newTimeStamp = Timestamp.from(Instant.ofEpochMilli(millis));
 
